@@ -16,7 +16,6 @@
   import pkg from "whatsapp-web.js";
   const { Client, LocalAuth, MessageMedia } = pkg;
   import ffmpeg from "fluent-ffmpeg";
-  import vosk from "vosk";
   const ofertaEnviada = {}; // controla se a oferta já foi enviada por chat
   function log(...args) {
     console.log(new Date().toISOString(), ...args);
@@ -71,30 +70,22 @@
     return escolhido;
   }
 
-  const MODEL_PATH = path.join(__dirname, "vosk-model-small-pt-0.3");
-  vosk.setLogLevel(0);
-  const model = new vosk.Model(MODEL_PATH);
 
   async function transcreverAudio(localPath) {
-    return new Promise((resolve, reject) => {
-      const rec = new vosk.Recognizer({ model, sampleRate: 16000 });
-
-      const process = ffmpeg(localPath)
-        .audioChannels(1)
-        .audioFrequency(16000)
-        .format("s16le")
-        .on("error", (err) => reject(err))
-        .pipe();
-
-      process.on("data", (data) => rec.acceptWaveform(data));
-      process.on("end", () => {
-        const result = rec.finalResult();
-        rec.free();
-        resolve(result.text || "");
+    try {
+      const resp = await openai.audio.transcriptions.create({
+        file: fs.createReadStream(localPath),
+        model: "whisper-1",
+        language: "pt", // idioma: português
       });
-    });
-    
+  
+      return resp.text || "";
+    } catch (err) {
+      console.error("Erro na transcrição (Whisper):", err);
+      return "";
+    }
   }
+  
 
   import OpenAI from "openai";
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
