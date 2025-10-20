@@ -9,6 +9,8 @@
     const __filename = fileURLToPath(import.meta.url);
     const __dirname = dirname(__filename);
 
+
+    
     import "dotenv/config";
     import fs from "fs";
     import path from "path";
@@ -17,6 +19,8 @@
     const { Client, LocalAuth, MessageMedia } = pkg;
     import ffmpeg from "fluent-ffmpeg";
     const ofertaEnviada = {}; // controla se a oferta já foi enviada por chat
+    const userAskedForLink = {};     // novo: true se o link foi enviado por pedido do usuário
+
     function log(...args) {
       console.log(new Date().toISOString(), ...args);
     }
@@ -177,7 +181,7 @@
       const { lastEmoji, used } = emojiHistory[chatId];
 
       // chance de apenas 10%
-      if (Math.random() > 0.1) return "";
+      if (Math.random() > 0.05) return "";
 
       // reseta se já usou quase todos
       if (used.size >= emojiList.length - 2) used.clear();
@@ -520,7 +524,13 @@
     function scheduleFollowUps(chatId) {
       resetFollowUps(chatId);
       followTimers[chatId] = [];
-
+    
+      // se o usuário pediu o link (e já enviamos), não criar o t3 de "pressão"
+      if (userAskedForLink[chatId]) {
+        // opcional: você ainda pode agendar outros followups leves
+        return;
+      }
+    
       const t3 = setTimeout(async () => {
         try {
           log("followup 3m -> pressao media:", chatId);
@@ -534,13 +544,14 @@
           await sendTextHuman(chatId, `quer ver mais? entra no meu canal ${LINK_OFERTA} 😏`, false);
           await sleep(3000 + Math.random() * 2000);
           await sendTextHuman(chatId, "lá tem tudo que não posso mostrar aqui ", false);
-                } catch (e) {
+        } catch (e) {
           log("erro followup:", e.message);
         }
       }, 3 * 60 * 1000);
-
-      followTimers[chatId].push(t3); // <-- ESSA LINHA
+    
+      followTimers[chatId].push(t3);
     }
+    
     // ---------- OpenAI interaction ----------
     async function askOpenAI(chatId, userText) {
       const timeoutMs = 20000;
@@ -639,6 +650,27 @@
     client.on("message", async (msg) => {
       const chatId = msg.from;
       const agora = Date.now();
+      const text = msg.body || "";
+
+      // detectar pedido explícito de link/perfil
+const explicitLinkRegex = /\b(perfil|link|fanvue|onde posso ver|onde vejo|qual seu perfil|me manda o link|me manda link|me passa o link|como vejo|onde fica|me manda o perfil)\b/i;
+const pediuLink = explicitLinkRegex.test(text);
+
+// se pediu link explicitamente, marcamos para não mandar followup t3 depois
+if (pediuLink) {
+  markUserAskedLink(chatId);
+}
+
+      // --- respostas automáticas específicas --- 
+if (/perfil|fanvue|link/i.test(text) && !ofertaEnviada[chatId]) {
+  await sendTextHuman(chatId, `bom, você pode conferir tudo lá no meu perfil 😉`, false);
+  await sleep(2500 + Math.random() * 1500);
+  await sendTextHuman(chatId, `é só acessar ${LINK_OFERTA}`, false);
+  ofertaEnviada[chatId] = true;
+  scheduleFollowUps(chatId);
+  return;
+}
+
     
       const MIN_INTERVAL = 2000; // 2 segundos
     if (lastMessageTime[chatId] && agora - lastMessageTime[chatId] < MIN_INTERVAL) {
@@ -730,6 +762,13 @@
         scheduleFollowUps(chatId);
       });
     });
+// exemplo: limpar a bandeira depois de 6 horas
+function markUserAskedLink(chatId) {
+  userAskedForLink[chatId] = true;
+  setTimeout(() => {
+    delete userAskedForLink[chatId];
+  }, 6 * 60 * 60 * 1000); // 6 horas
+}
 
 
     // inicializa
