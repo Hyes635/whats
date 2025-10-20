@@ -1,0 +1,668 @@
+  /*******************************************************
+   * index.js - bot whatsapp-web.js + OpenAI (Whisper)
+   * - usa gatilhos para todos os audios
+   * - primeira mensagem: espera 5s e manda audio inicial
+   * - maioria das respostas em audio (prompt força isso)
+   * - transcrição de áudios recebidos
+   * - delays humanos; split messages; emojis 20%
+   * - follow-ups 1,3,5 minutos -> tenta converter via PIX (teste)
+   *******************************************************/
+
+  import { fileURLToPath } from "url";
+  import { dirname } from "path";
+  import axios from "axios";
+
+  const __filename = fileURLToPath(import.meta.url);
+  const __dirname = dirname(__filename);
+
+  // dotenv
+  import "dotenv/config";
+
+  // libs
+  import fs from "fs";
+  import path from "path";
+  import qrcode from "qrcode-terminal";
+  import pkg from 'whatsapp-web.js';
+  const { Client, LocalAuth, MessageMedia } = pkg;
+
+  import ffmpeg from "fluent-ffmpeg";
+  import { promisify } from "util";
+
+  // função auxiliar que vc tinha (pode manter)
+  function converterParaWhatsApp(filePath) {
+    return new Promise((resolve, reject) => {
+      const saida = filePath.replace(/\.[^/.]+$/, "_fixed.ogg");
+      ffmpeg(filePath)
+        .audioCodec("libopus")
+        .audioChannels(1)
+        .audioFrequency(48000)
+        .audioBitrate("64k")
+        .toFormat("ogg")
+        .on("end", () => resolve(saida))
+        .on("error", reject)
+        .save(saida);
+    });
+  }
+
+  // openai
+  import OpenAI from "openai";
+
+  // configuração
+  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  const TEST_PIX = process.env.TEST_PIX || "12988356980"; // coloque aqui o pix de teste ou via .env
+
+  // cliente whatsapp
+  const client = new Client({ authStrategy: new LocalAuth() });
+
+  client.on("qr", (qr) => {
+    console.log("📱 escaneie este QR (whatsapp do celular que será a IA):");
+    qrcode.generate(qr, { small: true });
+  });
+  client.on("ready", () => console.log("🤖 bot conectado no WhatsApp!"));
+
+  // ------------------------------------------------------------------
+  //  lista completa de audios hospedados no Google Drive
+  //  (ALTERAÇÃO: array de objetos {file, url})
+  // ------------------------------------------------------------------
+  const audiosDrive = [
+    { file: "fixed_prontinho__so_ascessar_o_conteudo.ogg", url: "https://drive.google.com/uc?export=download&id=1Lw-KiIv9V7pzPUvYG_djcuHtLiio7Frh" },
+    { file: "fixed_to_indo_pra_acad.ogg", url: "https://drive.google.com/uc?export=download&id=1Be41WQoXIxNFhWzt8H5tGdRHk2e-Ee7Y" },
+    { file: "fixed_voce_que_me_ver_peladinha.ogg", url: "https://drive.google.com/uc?export=download&id=1bEJqkr6FxmNZtV_VcYrziyCMP3Z8VTAz" },
+    { file: "fixed_salva_meu_contato.ogg", url: "https://drive.google.com/uc?export=download&id=1y18Kgjargpxy1NAx3Mu6H2WYk0nMp9Yv" },
+    { file: "fixed_quer_q_te_explique.ogg", url: "https://drive.google.com/uc?export=download&id=1ed1g_2JA1ATIhDretNZ3EXmQziw2p0Mm" },
+    { file: "fixed_pra_me_ver_nua_tem_que_comprar_os_packs.ogg", url: "https://drive.google.com/uc?export=download&id=19drb30U3fwSzRe8nS_HtCZFw4QTR-P0H" },
+    { file: "fixed_pra_vc_me_ver_pelada_tem_que_pagar.ogg", url: "https://drive.google.com/uc?export=download&id=1RhZarneh_YSBn1QME9mi4CbjMmpktRCL" },
+    { file: "fixed_vou_ter_enviar_minhas_foto.ogg", url: "https://drive.google.com/uc?export=download&id=1aTuUjUh2bYkfPovuJMgoIkSSGDZ7NTbR" },
+    { file: "fixed_saio_com_quem_ja_e_meu_cliente.ogg", url: "https://drive.google.com/uc?export=download&id=1gNds3pXyV_YYYzCUqzVg2BTirgw4IMst" },
+    { file: "fixed_vc_demora_muito_pra_responder.ogg", url: "https://drive.google.com/uc?export=download&id=1ownw2nY3MooknDGkC6Fzykaq-QgS-nSg" },
+    { file: "fixed_sou_de_vdd.ogg", url: "https://drive.google.com/uc?export=download&id=1YLtFCKezM5MimKRJLi2J8P0ujzcTd7Qz" },
+    { file: "fixed_pedindo_pra_aguardar.ogg", url: "https://drive.google.com/uc?export=download&id=1Q3Th_tFRd8eVk5e5FHHy9C9nrkIBVvAB" },
+    { file: "fixed_oi_gatinho_lindo.ogg", url: "https://drive.google.com/uc?export=download&id=1y5f5jizqFJHqZ1ygfaAooY3VlkoJWq-t" },
+    { file: "fixed_ja_to_com_sdd.ogg", url: "https://drive.google.com/uc?export=download&id=1kfcn88RS2rVIIDwtd8pK5eBWQkqRVgjn" },
+    { file: "fixed_mensagem_direta_pra_compra_.ogg", url: "https://drive.google.com/uc?export=download&id=1BDiti38QyZpy2XHORz8-N7aiJavCuGyU" },
+    { file: "fixed_gravei_me_gozando_todinha.ogg", url: "https://drive.google.com/uc?export=download&id=1qzTAxv1OrmiQyJXmkM3onx2cZRJf1Q3H" },
+    { file: "fixed_o_que_achou_das_amostras.ogg", url: "https://drive.google.com/uc?export=download&id=1JID4OZ8lY6ddDKnXfrsUKjiSrRAxPfSS" },
+    { file: "fixed_oi_meu_amor_tudo_bem.ogg", url: "https://drive.google.com/uc?export=download&id=1HFtIUitU4ja79_8WhP1RhOPUj3RmXn5k" },
+    { file: "fixed_bom_dia_meu_cliente_favorito.ogg", url: "https://drive.google.com/uc?export=download&id=11qw_EAYgmZF2MydCXIpdSZJd1-ny_to-" },
+    { file: "fixed_a_nao_esquece_de_manda_o_comprovante.ogg", url: "https://drive.google.com/uc?export=download&id=1hFNadVThTjCw9EfFLTJ4nR4o65Rxh6uX" },
+    { file: "Bom dia-Não sou fake.ogg", desc: "cumprimento e prova social", url: "https://drive.google.com/uc?export=download&id=1nn8otk8CBGXp2GC-_4NIIgRdiKPkw4dj" },
+  ];
+  /* ALTERADO: agora que audiosDrive já existe, criamos allAudios e o mapa */
+  const allAudios = audiosDrive.map(a => a.file); // usado no prompt
+  const audiosDriveMap = Object.fromEntries(audiosDrive.map(a => [a.file, a.url]));
+
+  // --- LISTA DE PRÉVIAS (Google Drive direct links) ---
+  const previasDrive = [
+    { file: "previa_1.jpeg", url: "https://drive.google.com/uc?export=download&id=12n9RVlR9cN7xVXr6QSQH5GapAuqpT9iL" },
+    { file: "previa_2.jpeg", url: "https://drive.google.com/uc?export=download&id=1CZrx02GOe8CrcZQdIR_PDtQDnJXNUbt0" },
+    { file: "previa_3.jpeg", url: "https://drive.google.com/uc?export=download&id=1hy9mcH-ArD7HHqpOp0tlOTep-PvbF0Ec" },
+    { file: "previa_4.jpeg", url: "https://drive.google.com/uc?export=download&id=1iW9A4vMN9ivpDT_nMBQHpgck4LoXPnJX" },
+    { file: "previa_5.jpeg", url: "https://drive.google.com/uc?export=download&id=1py6G5KMDG07oUCUnJQ8jj3AEXCMRSQ8J" },
+    { file: "previa_6.jpeg", url: "https://drive.google.com/uc?export=download&id=1qrizknmLvPeboTmFU0PuehnoXEZz695d" },
+    { file: "previa_7.jpeg", url: "https://drive.google.com/uc?export=download&id=1tDDl78pRCb_oV4xaLJ-WCeEJ4c0hcaQq" },
+    { file: "previa_8.jpeg", url: "https://drive.google.com/uc?export=download&id=1wdwmOuABNSqE_TIgp6VXBWgjXAwzApA2" },
+    { file: "previa_9.jpeg", url: "https://drive.google.com/uc?export=download&id=1wwMpjuFyYVeXhByYlMao1S7EjvwE24gC" },
+  ];
+  const previasMap = Object.fromEntries(previasDrive.map(p => [p.file, p.url]));
+
+  // --- LISTA DE ÁUDIOS DISPONÍVEIS ---
+  const audiosDisponiveis = [
+    "audio_1.mp3", "audio_2.mp3", "audio_3.mp3", "audio_4.mp3",
+    "audio_5.mp3", "audio_6.mp3", "audio_7.mp3", "audio_8.mp3"
+  ];
+
+  // --- CONTROLES DE REPETIÇÃO ---
+  let previasEnviadas = new Set();
+  let audiosEnviados = new Set();
+
+  // --- GATILHOS ---
+  const gatilhosPrevia = [
+    "prévia", "previa", "foto", "imagem", "mostra", "mostrar",
+    "ver", "manda", "envia", "me mostra", "me manda", "tem aí",
+    "deixa eu ver", "tem algo", "tem alguma", "quero ver", "cadê a prévia"
+  ];
+  const gatilhosAudio = [
+    "áudio", "audio", "voz", "fala comigo", "quero te ouvir",
+    "manda um áudio", "me manda áudio", "me manda sua voz",
+    "grava pra mim", "me fala com sua voz"
+  ];
+
+  // --- FALAS PROVOCANTES ---
+  const falasProvocantes = [
+    "hm?", "ué rs", "fala mais disso 😏", "sério?",
+    "assim você me deixa curiosa 😜", "continua…", "gostei disso 😶‍🌫️",
+    "ah é? 👀", "me convence melhor então rs"
+  ];
+
+  // --- FUNÇÕES AUXILIARES ---
+  function pegarAleatorioUnico(lista, enviados) {
+    const disponiveis = lista.filter(i => !enviados.has(i.file || i));
+    if (disponiveis.length === 0) {
+      enviados.clear();
+      return pegarAleatorioUnico(lista, enviados);
+    }
+    const escolhido = disponiveis[Math.floor(Math.random() * disponiveis.length)];
+    enviados.add(escolhido.file || escolhido);
+    return escolhido;
+  }
+
+  function enviarMensagem(texto) {
+    console.log("💬 Enviado:", texto);
+  }
+
+  // --- DELAY GLOBAL DE 6 SEGUNDOS ---
+  function delay(ms = 6000) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  // --- FUNÇÃO PRINCIPAL ---
+  async function responderLead(mensagem) {
+    const msgLower = mensagem.toLowerCase();
+
+    const querPrevia = gatilhosPrevia.some(t => msgLower.includes(t));
+    const querAudio = gatilhosAudio.some(t => msgLower.includes(t));
+
+    await delay(); // ⏳ aguarda 6s antes de qualquer resposta
+
+    if (querPrevia) {
+      const previa = pegarAleatorioUnico(previasDrive, previasEnviadas);
+      const provocacao = falasProvocantes[Math.floor(Math.random() * falasProvocantes.length)];
+      enviarMensagem(`${provocacao}\n<PREVIA: ${previa.url}>`);
+      return;
+    }
+
+    if (querAudio) {
+      const audio = pegarAleatorioUnico(audiosDisponiveis, audiosEnviados);
+      const provocacao = falasProvocantes[Math.floor(Math.random() * falasProvocantes.length)];
+      enviarMensagem(`${provocacao}\n<<AUDIO:${audio}>>`);
+      return;
+    }
+
+    const respostaAleatoria = falasProvocantes[Math.floor(Math.random() * falasProvocantes.length)];
+    enviarMensagem(respostaAleatoria);
+  }
+
+  // --- EXEMPLOS ---
+  // responderLead("me manda uma prévia");
+  // responderLead("quero ouvir sua voz");
+  // responderLead("fala mais disso");
+
+
+  // ------------------------------------------------------------------
+  //  mapa de gatilhos -> NOME do arquivo de audio (RECOMENDADO)
+  //  ⚠️ IMPORTANTE: aqui nós usamos nomes (ex: "fixed_oi_gatinho_lindo.opus")
+  // ------------------------------------------------------------------
+  // ------------------------------------------------------------------
+  // mapa de gatilhos -> nome do arquivo de áudio existente no Drive
+  // ------------------------------------------------------------------
+  const audioTriggers = {
+    "bom dia": "fixed_bom_dia_meu_cliente_favorito.ogg",
+    "vc é fake": "fixed_sou_de_vdd.ogg",
+    "vc é real": "fixed_sou_de_vdd.ogg",
+    "fake": "fixed_sou_de_vdd.ogg",
+    "comprovante": "fixed_a_nao_esquece_de_manda_o_comprovante.ogg",
+    "pix": "fixed_mensagem_direta_pra_compra_.ogg",
+    "pagar": "fixed_mensagem_direta_pra_compra_.ogg",
+    "compra": "fixed_mensagem_direta_pra_compra_.ogg",
+    "link": "fixed_mensagem_direta_pra_compra_.ogg",
+    "quero pack": "fixed_pra_me_ver_pelada_tem_que_pagar.ogg",
+    "amostra": "fixed_oi_gatinho_lindo.ogg",
+    "mostra": "fixed_oi_gatinho_lindo.ogg",
+    "gratis": "fixed_oi_gatinho_lindo.ogg",
+    "gostosa": "fixed_gravei_me_gozando_todinha.ogg",
+    "gozar": "fixed_gravei_me_gozando_todinha.ogg",
+    "goze": "fixed_gravei_me_gozando_todinha.ogg",
+    "pelada": "fixed_pra_me_ver_pelada_tem_que_pagar.ogg",
+    "nua": "fixed_pra_me_ver_pelada_tem_que_pagar.ogg",
+    "saudade": "fixed_ja_to_com_sdd.ogg",
+    "sdd": "fixed_ja_to_com_sdd.ogg",
+    "demora": "fixed_vc_demora_muito_pra_responder.ogg",
+    "salva": "fixed_salva_meu_contato.ogg",
+    "prontinho": "fixed_prontinho__so_ascessar_o_conteudo.ogg",
+    "duvida": "fixed_quer_q_te_explique.ogg",
+    "explica": "fixed_quer_q_te_explique.ogg",
+    "oi": "fixed_oi_gatinho_lindo.ogg",
+    "olá": "fixed_oi_meu_amor_tudo_bem.ogg",
+    "tudo bem": "fixed_oi_meu_amor_tudo_bem.ogg",
+  };
+
+  // ------------------------------------------------------------------
+  // memória + timers
+  // ------------------------------------------------------------------
+  const firstAudioName = "fixed_oi_gatinho_lindo.ogg";
+  const memoryStore = {}; // conversas por contato
+  const followTimers = {}; // timers por contato
+
+  // util: escreve log curto
+  function log(...args) {
+    console.log(new Date().toISOString(), ...args);
+  }
+
+  // util delay (ms)
+  function sleep(ms) {
+    return new Promise((res) => setTimeout(res, ms));
+  }
+
+  function deveUsarAudio(mensagem) {
+    const palavras = mensagem.split(" ").length;
+    const chance = Math.random();
+
+    if (palavras < 3) return false; // respostas curtas: só texto
+    if (mensagem.includes("?")) return chance < 0.5; // metade das perguntas em áudio
+    return chance < 0.3; // 30% das respostas comuns em áudio
+  }
+
+  /* === ALTERADO: nova versão da função sendAudioHuman (envia direto do Drive) === */
+  function getMimeByName(name) {
+    const ext = (name || "").split(".").pop().toLowerCase();
+    if (ext === "opus") return "audio/opus";
+    if (ext === "ogg") return "audio/ogg; codecs=opus";
+    if (ext === "mp3") return "audio/mpeg";
+    if (ext === "m4a") return "audio/mp4";
+    return "audio/ogg";
+  }
+
+  async function sendAudioHuman(from, audioName) {
+    try {
+      if (!audioName || typeof audioName !== "string") {
+        console.error("❌ Nome do arquivo inválido:", audioName);
+        await sendTextHuman(from, "ops, meu áudio bugou 😅");
+        return;
+      }
+
+      const audioUrl = audiosDriveMap[audioName];
+      if (!audioUrl) {
+        console.error("❌ Áudio não encontrado no audiosDriveMap:", audioName);
+        await sendTextHuman(from, "não achei esse áudio agora 😅");
+        return;
+      }
+
+      // baixa o arquivo direto (arraybuffer)
+      const resp = await axios.get(audioUrl, {
+        responseType: "arraybuffer",
+        maxRedirects: 5,
+        timeout: 15000,
+      });
+
+      // checa content-type simples (opcional)
+      const contentType = resp.headers && (resp.headers['content-type'] || resp.headers['Content-Type']);
+      if (contentType && !contentType.startsWith("audio")) {
+        console.warn("⚠️ Resposta do Drive não tem content-type audio:", contentType);
+        // ainda assim tentamos enviar, mas aviso no log
+      }
+
+      const buffer = Buffer.from(resp.data);
+      const base64 = buffer.toString("base64");
+      const mime = getMimeByName(audioName);
+
+      // cria MessageMedia diretamente a partir do base64
+      const media = new MessageMedia(mime, base64, audioName);
+
+      // envia como voz (PTT)
+      await client.sendMessage(from, media, { sendAudioAsVoice: true });
+
+      console.log(`✅ Áudio enviado: ${audioName} -> ${from}`);
+    } catch (err) {
+      console.error("❌ Erro ao enviar áudio do Drive:", err?.message || err);
+      try { await sendTextHuman(from, "tive um probleminha ao enviar o áudio, me espera..."); } catch (e) { /* fallback */ }
+    }
+  }
+
+  /* === Envia mídia de visualização única (foto/vídeo) === */
+  async function sendPreviaOnce(from, fileName) {
+    try {
+      const url = previasMap[fileName];
+      if (!url) {
+        console.error("❌ Prévia não encontrada:", fileName);
+        await sendTextHuman(from, "não achei minha prévia agora 😅");
+        return;
+      }
+
+      // baixa o arquivo
+      const resp = await axios.get(url, { responseType: "arraybuffer", timeout: 15000 });
+      const buffer = Buffer.from(resp.data);
+      const base64 = buffer.toString("base64");
+
+      // detecta mime básico
+      const mime = url.endsWith(".mp4")
+        ? "video/mp4"
+        : url.endsWith(".png") || url.endsWith(".jpeg") || url.endsWith(".jpg")
+        ? "image/jpeg"
+        : "application/octet-stream";
+
+      const media = new MessageMedia(mime, base64, fileName);
+
+      // envia com visualização única
+      await client.sendMessage(from, media, { viewOnce: true });
+      console.log(`✅ Prévia enviada (viewOnce): ${fileName} -> ${from}`);
+    } catch (err) {
+      console.error("❌ Erro ao enviar prévia:", err?.message || err);
+      await sendTextHuman(from, "tive um probleminha pra te mandar a prévia 😢");
+    }
+  }
+
+
+  /* sendTextHuman (mantive igual, só usei client.sendMessage) */
+  async function sendTextHuman(from, text, isFirst = false) {
+    if (!text) return;
+    const lowerText = String(text).toLowerCase();
+    const addEmoji = !isFirst && Math.random() < 0.2;
+    const emoji = addEmoji ? " 😘" : "";
+    const shouldSplit = Math.random() < 0.3 && lowerText.length > 30;
+
+    if (shouldSplit) {
+      const parts = lowerText.split(/[,.!?]/).map(p => p.trim()).filter(Boolean);
+      const first = parts[0] || lowerText;
+      const rest = parts.slice(1).join(", ") || "";
+      await sleep(2000 + Math.random() * 2000);
+      await client.sendMessage(from, first + emoji);
+      if (rest) {
+        await sleep(2000 + Math.random() * 3000);
+        await client.sendMessage(from, rest);
+      }
+      return;
+    }
+
+    await sleep(2000 + Math.random() * 2000);
+    await client.sendMessage(from, lowerText + (addEmoji ? emoji : ""));
+  }
+
+  // função para checar gatilho de audio
+  function checkAudioTrigger(text) {
+    if (!text) return null;
+    const lower = text.toLowerCase();
+    for (const key in audioTriggers) {
+      if (lower.includes(key)) {
+        return audioTriggers[key]; // retorna NOME do arquivo
+      }
+    }
+    return null;
+  }
+
+  // grava memória da conversa por contato
+  function pushMemory(from, role, content) {
+    if (!memoryStore[from]) memoryStore[from] = [];
+    memoryStore[from].push({ role, content });
+    if (memoryStore[from].length > 16) memoryStore[from].shift();
+  }
+
+  // reseta follow-ups (cancela timers)
+  function resetFollowUps(from) {
+    if (!followTimers[from]) return;
+    for (const t of followTimers[from]) clearTimeout(t);
+    delete followTimers[from];
+  }
+
+  // agenda follow-ups de 1,3,5 minutos (cada um tenta empurrar PIX e usa audios)
+  function scheduleFollowUps(from) {
+    resetFollowUps(from);
+    followTimers[from] = [];
+
+    // 1 min: lembrete suave (audio ou texto)
+    const t1 = setTimeout(async () => {
+      log("followup 1m -> lembrete suave:", from);
+      // suave: audio de amostra ou saudação
+      const f = checkAudioTrigger("amostra") || firstAudioName;
+      if (f && audiosDriveMap[f]) {
+        await sendAudioHuman(from, f);
+      } else {
+        await sendTextHuman(from, "e ai amor, ficou olhando? quer que eu te mande uma amostra rápida?", false);
+      }
+    }, 60 * 1000);
+    followTimers[from].push(t1);
+
+    // 3 min: pressão média - pede pix de teste suave
+    const t3 = setTimeout(async () => {
+      log("followup 3m -> pressao media:", from);
+      const file = checkAudioTrigger("sdd") || "fixed_ja_to_com_sdd.opus";
+      if (file && audiosDriveMap[file]) {
+        await sendAudioHuman(from, file);
+      } else {
+        await sendTextHuman(from, "amor, to aqui ainda, se quiser ver mais tem que garantir seu acesso ok", false);
+      }
+      await sleep(3000 + Math.floor(Math.random() * 2000));
+      await sendTextHuman(from, `quer testar ? faz um pix de r$20 pro numero ${TEST_PIX} e eu te libero uma amostra exclusiva`, false);
+    }, 3 * 60 * 1000);
+    followTimers[from].push(t3);
+
+    // 5 min: ultima chance - pressão final e desistir
+    const t5 = setTimeout(async () => {
+      log("followup 5m -> pressao final:", from);
+      const finalAudio = checkAudioTrigger("prontinho") || "fixed_prontinho_so_acessar_o_conteudo.opus";
+      if (finalAudio && audiosDriveMap[finalAudio]) {
+        await sendAudioHuman(from, finalAudio);
+      } else {
+        await sendTextHuman(from, "ultima chance meu amor, se quiser continuar sem pressa me chama, se quiser td liberado faz o pix de r$20 pro numero " + TEST_PIX, false);
+      }
+      await sleep(2 * 60 * 1000);
+      await sendTextHuman(from, "vou deixar pra la agora, quando quiser me chama de novo 💋", false);
+      delete memoryStore[from];
+      resetFollowUps(from);
+    }, 5 * 60 * 1000);
+    followTimers[from].push(t5);
+  }
+
+  // função que chama OpenAI e força resposta em formato que queremos
+  async function askOpenAI(from, userText) {
+    pushMemory(from, "user", userText);
+
+    const systemPrompt = `
+  você é uma garota sexy que vende packs e vídeos.
+  fale sem letra maiúscula, com pouca pontuação.
+  as mensagens devem ser curtas, naturais e provocantes, parecendo bem humanas.
+
+  use humor leve e ironia sutil, e sempre termine com um gancho pra manter o lead engajado.
+  apenas 20% das mensagens podem ter 1 emoji (no máximo).
+
+  🔥 CONTROLE DE CLIMA E PROGRESSÃO
+
+  quanto mais tempo a conversa durar, mais à vontade você fica — fala mais solta, mais direta e confiante.
+  varie o tom entre provocante, brincalhona e curiosa, dependendo do humor do lead.
+
+  🎧 USO DE ÁUDIOS
+
+  você deve usar os áudios disponíveis abaixo como gatilhos.
+  sempre analise se o contexto da conversa abre brecha pra um deles (por exemplo, se o lead pede pra ver algo, demora pra responder, fala de academia, etc).
+  se fizer sentido, envie o áudio e um texto curtinho junto.
+
+  use exatamente a sintaxe:
+  <<AUDIO:nome-do-arquivo.ext>>
+
+  se nenhum áudio fizer sentido, responda com um texto curto (1–2 frases), natural e provocante.
+
+  Tabela de áudios disponíveis:
+
+  Nome do áudio	Contexto sugerido
+  fixed_prontinho__so_ascessar_o_conteudo.ogg	quando envia algo pronto
+  fixed_to_indo_pra_acad.ogg	se ele falar de academia
+  fixed_voce_que_me_ver_peladinha.ogg	se ele pedir pra ver algo
+  fixed_salva_meu_contato.ogg	quando pede pra manter contato
+  fixed_quer_q_te_explique.ogg	quando ele parece confuso
+  fixed_pra_me_ver_nua_tem_que_comprar_os_packs.ogg	se ele quiser ver sem pagar
+  fixed_pra_vc_me_ver_pelada_tem_que_pagar.ogg	mesmo contexto, mais direta
+  fixed_vou_ter_enviar_minhas_foto.ogg	quando for falar de fotos
+  fixed_saio_com_quem_ja_e_meu_cliente.ogg	quando fala de sair pessoalmente
+  fixed_vc_demora_muito_pra_responder.ogg	se ele demorar pra responder
+  fixed_sou_de_vdd.ogg	pra reforçar que é real
+  fixed_pedindo_pra_aguardar.ogg	quando precisa que ele espere
+  fixed_oi_gatinho_lindo.ogg	pra iniciar o papo de forma fofa
+  fixed_ja_to_com_sdd.ogg	se já tiver rola de intimidade
+  fixed_mensagem_direta_pra_compra_.ogg	pra converter em venda
+  fixed_gravei_me_gozando_todinha.ogg	pra provocar mais
+  fixed_o_que_achou_das_amostras.ogg	após mandar prévias
+  fixed_oi_meu_amor_tudo_bem.ogg	pra reaproximar
+  fixed_bom_dia_meu_cliente_favorito.ogg	iniciar o dia
+  fixed_a_nao_esquece_de_manda_o_comprovante.ogg	lembrete de pagamento
+  Bom dia-Não sou fake.ogg	prova social/confiança
+  👀 PRÉVIAS (VISUALIZAÇÃO ÚNICA)
+
+  você tem 9 prévias de visualização única.
+  todas têm o mesmo nível — escolha qualquer uma quando fizer sentido.
+
+  só envie <<PREVIA:nome-da-previa>> se o lead demonstrar interesse visual
+  (ex: “quero ver”, “mostra”, “tem foto?”, “como é você?”) ou se o clima estiver rolando.
+
+  após enviar, reaja de forma provocante:
+  “gostou?”, “acha muito?”, “quer ver mais rs”, “fala o que achou 😏”.
+
+  Tabela de prévias:
+
+  Nome da prévia	Link
+  previa1	https://drive.google.com/file/d/12n9RVlR9cN7xVXr6QSQH5GapAuqpT9iL/view?usp=sharing
+
+  previa2	https://drive.google.com/file/d/1CZrx02GOe8CrcZQdIR_PDtQDnJXNUbt0/view?usp=sharing
+
+  previa3	https://drive.google.com/file/d/1hy9mcH-ArD7HHqpOp0tlOTep-PvbF0Ec/view?usp=sharing
+
+  previa4	https://drive.google.com/file/d/1iW9A4vMN9ivpDT_nMBQHpgck4LoXPnJX/view?usp=sharing
+
+  previa5	https://drive.google.com/file/d/1py6G5KMDG07oUCUnJQ8jj3AEXCMRSQ8J/view?usp=sharing
+
+  previa6	https://drive.google.com/file/d/1qrizknmLvPeboTmFU0PuehnoXEZz695d/view?usp=sharing
+
+  previa7	https://drive.google.com/file/d/1tDDl78pRCb_oV4xaLJ-WCeEJ4c0hcaQq/view?usp=sharing
+
+  previa8	https://drive.google.com/file/d/1wdwmOuABNSqE_TIgp6VXBWgjXAwzApA2/view?usp=sharing
+
+  previa9	https://drive.google.com/file/d/1wwMpjuFyYVeXhByYlMao1S7EjvwE24gC/view?usp=sharing
+  💬 FALLBACK INTELIGENTE
+
+  se não houver nada óbvio pra responder, apenas reaja de forma curta e provocante:
+  “hm?”, “ué rs”, “fala mais disso”, “vc é assim sempre? 😏”.
+  ${allAudios.map(a => `- ${a}`).join("\n")}
+  `;
+
+    try {
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [{ role: "system", content: systemPrompt }, ...(memoryStore[from] || [])],
+        temperature: 1.0,
+        max_tokens: 220,
+      });
+      const reply = completion.choices[0].message.content.trim();
+      pushMemory(from, "assistant", reply);
+      return reply;
+    } catch (err) {
+      log("erro openai:", err?.response?.data || err?.message || err);
+      throw err;
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // EVENT: mensagem recebida
+  // ------------------------------------------------------------------
+  client.on("message", async (msg) => {
+    const from = msg.from;
+    const hasMemory = !!memoryStore[from];
+
+    // sempre cancela os followups ao receber qualquer mensagem do lead
+    resetFollowUps(from);
+
+    // se for a primeira mensagem (lead novo)
+    if (!hasMemory) {
+      memoryStore[from] = [];
+      pushMemory(from, "user", msg.body || "[audio]");
+
+      // aguardamos 5s e mandamos o audio inicial fixo (agora do Drive)
+      setTimeout(async () => {
+        try {
+          if (firstAudioName && audiosDriveMap[firstAudioName]) {
+            await sendAudioHuman(from, firstAudioName);
+          } else {
+            await sendTextHuman(from, "oie, tudo bem? sou eu mesmo aqui 💕", true);
+          }
+        } catch (e) {
+          log("erro enviando audio inicial:", e);
+        }
+        scheduleFollowUps(from);
+      }, 5000);
+      return;
+    }
+
+    // se a mensagem tem media (audio do lead) - vamos transcrever
+    let text = msg.body || "";
+    try {
+      if (msg.hasMedia) {
+        const media = await msg.downloadMedia();
+        const ext = (media.mimetype || "audio/ogg").split("/")[1].split(";")[0];
+        const tmpName = path.join(__dirname, `tmp_${Date.now()}.${ext}`);
+        fs.writeFileSync(tmpName, Buffer.from(media.data, "base64"));
+
+        try {
+          const transcription = await openai.audio.transcriptions.create({
+            file: fs.createReadStream(tmpName),
+            model: "whisper-1",
+          });
+          text = transcription.text || "";
+          log("transcricao audio:", text);
+        } catch (e) {
+          log("erro transcrever audio:", e?.response?.data || e?.message || e);
+        } finally {
+          if (fs.existsSync(tmpName)) fs.unlinkSync(tmpName);
+        }
+      }
+    } catch (err) {
+      log("erro processando media:", err);
+    }
+
+    // registra texto recebido
+    pushMemory(from, "user", text);
+    log("mensagem do lead:", text);
+    try {
+      const reply = await askOpenAI(from, text) || "";
+      const replyText = String(reply || "");
+    
+      // gatilho por texto (checa audioTriggers -> retorna nome do arquivo)
+      const trig = checkAudioTrigger(text);
+      if (trig && audiosDriveMap[trig]) {
+        await sendAudioHuman(from, trig);
+        scheduleFollowUps(from);
+        return;
+      }
+    
+      // tag no reply <<AUDIO: nome>>
+      const audioMatch = replyText.match(/<<AUDIO:\s*([^>]+)>>/i);
+      if (audioMatch) {
+        const fname = audioMatch[1].trim();
+        if (audiosDriveMap[fname]) {
+          await sendAudioHuman(from, fname);
+        } else {
+          await sendTextHuman(from, "amor, to com um probleminha aqui, me espera um pouquinho", false);
+        }
+      } else {
+        // decide se envia áudio aleatório ou texto
+        if (Math.random() < 0.7 && audiosDrive.length > 0) {
+          const randIndex = Math.floor(Math.random() * audiosDrive.length);
+          const randomAudioFile = audiosDrive[randIndex].file;
+          if (audiosDriveMap[randomAudioFile]) {
+            await sendAudioHuman(from, randomAudioFile);
+          } else {
+            await sendTextHuman(from, replyText, false);
+          }
+        } else {
+          await sendTextHuman(from, replyText, false);
+        }
+      }
+    // detecta tag de prévia
+  const previaMatch = replyText.match(/<<PREVIA:\s*([^>]+)>>/i);
+  if (previaMatch) {
+    const pfile = previaMatch[1].trim();
+    if (previasMap[pfile]) {
+      await sendPreviaOnce(from, pfile);
+    } else {
+      await sendTextHuman(from, "ops, não encontrei essa prévia agora 😅");
+    }
+    scheduleFollowUps(from);
+    return;
+  }
+
+      scheduleFollowUps(from);
+    } catch (err) {
+      console.error("Erro no processamento da mensagem:", err);
+      await sendTextHuman(from, "ops, tive um errinho aqui amor, me espera um segundinho 💕", false);
+      scheduleFollowUps(from);
+    }
+  }); // fecha client.on("message", ... )
+
+  // inicializa cliente
+  client.initialize();
