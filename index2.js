@@ -525,22 +525,23 @@
       resetFollowUps(chatId);
       followTimers[chatId] = [];
     
-      // se o usuário pediu o link (e já enviamos), não criar o t3 de "pressão"
-      if (userAskedForLink[chatId]) {
-        // opcional: você ainda pode agendar outros followups leves
-        return;
-      }
+      if (userAskedForLink[chatId] || ofertaEnviada[chatId]) return; // evita T3 desnecessário
     
       const t3 = setTimeout(async () => {
         try {
+          if (ofertaEnviada[chatId]) return; // garante que só manda 1 vez
+    
           log("followup 3m -> pressao media:", chatId);
+          ofertaEnviada[chatId] = true; // marca como enviado pra não repetir
+    
           const file = checkAudioTrigger("sdd") || "fixed_ja_to_com_sdd.ogg";
           if (file && audiosDriveMap[file] && !audioJaEnviado(chatId, file)) {
             await sendAudioHuman(chatId, file);
           } else {
             await sendTextHuman(chatId, "amor, to aqui ainda, se quiser ver mais tem que garantir seu acesso ok", false);
           }
-          await sleep(3000 + Math.floor(Math.random() * 2000));
+    
+          await sleep(3000 + Math.random() * 2000);
           await sendTextHuman(chatId, `quer ver mais? entra no meu canal ${LINK_OFERTA} 😏`, false);
           await sleep(3000 + Math.random() * 2000);
           await sendTextHuman(chatId, "lá tem tudo que não posso mostrar aqui ", false);
@@ -552,6 +553,7 @@
       followTimers[chatId].push(t3);
     }
     
+    
     // ---------- OpenAI interaction ----------
     async function askOpenAI(chatId, userText) {
       const timeoutMs = 20000;
@@ -559,9 +561,11 @@
       const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
       const systemPrompt = `
-      você é uma mulher charmosa, confiante e envolvente, com um jeito natural de conversar, se chama Bianca Lika e tem 21 anos.
+      você é uma mulher charmosa, confiante e envolvente, com um jeito natural de conversar, se chama Bianca Lika e tem 21 anos e você mora em Curitiba.
       fala sempre em minúsculas, com frases curtas e leves, parecendo uma conversa real no WhatsApp.
       
+      ⚙️ nunca repita emojis ou expressões próximas em mensagens seguidas.
+      adicione emoji em no máximo 1 de cada 8 mensagens.
       ❌ nunca use "rs" nem repita emojis.
       ❌ nunca diga "já te falei", "já te mandei isso", "me conta mais disso", "o que você quis dizer com isso".
       ✅ varie as respostas, use humor, curiosidade e um toque de provocação.
@@ -580,8 +584,7 @@
       
       🎙️ quando fizer sentido mandar áudio, use o formato <AUDIO:nome.ext>.
       
-      ⚙️ nunca repita emojis ou expressões próximas em mensagens seguidas.
-      adicione emoji em no máximo 1 de cada 8 mensagens.
+      
       
       contexto: ${allAudios.map(a => `- ${a}`).join("\n")}
       `;
@@ -650,53 +653,52 @@
     client.on("message", async (msg) => {
       const chatId = msg.from;
       const agora = Date.now();
-      const text = msg.body || "";
-
+      let text = msg.body?.trim() || "";
+    
+      if (msg.fromMe) return;
+    
+      if (!userAskedForLink[chatId]) userAskedForLink[chatId] = false;
+      if (!ofertaEnviada[chatId]) ofertaEnviada[chatId] = false;
+    
       // detectar pedido explícito de link/perfil
-const explicitLinkRegex = /\b(perfil|link|fanvue|onde posso ver|onde vejo|qual seu perfil|me manda o link|me manda link|me passa o link|como vejo|onde fica|me manda o perfil)\b/i;
-const pediuLink = explicitLinkRegex.test(text);
-
-// se pediu link explicitamente, marcamos para não mandar followup t3 depois
-if (pediuLink) {
-  markUserAskedLink(chatId);
-}
-
-      // --- respostas automáticas específicas --- 
-if (/perfil|fanvue|link/i.test(text) && !ofertaEnviada[chatId]) {
-  await sendTextHuman(chatId, `bom, você pode conferir tudo lá no meu perfil 😉`, false);
-  await sleep(2500 + Math.random() * 1500);
-  await sendTextHuman(chatId, `é só acessar ${LINK_OFERTA}`, false);
-  ofertaEnviada[chatId] = true;
-  scheduleFollowUps(chatId);
-  return;
-}
+      const explicitLinkRegex = /\b(perfil|link|fanvue|onde posso ver|onde vejo|qual seu perfil|me manda o link|me manda link|me passa o link|como vejo|onde fica|me manda o perfil)\b/i;
+      const pediuLink = explicitLinkRegex.test(text);
+    
+      // se pediu o link e ainda não mandou
+      if (pediuLink && !ofertaEnviada[chatId]) {
+        markUserAskedLink(chatId);
+        await sendTextHuman(chatId, `bom, você pode conferir tudo lá no meu perfil 😉`, false);
+        await sleep(2500 + Math.random() * 1500);
+        await sendTextHuman(chatId, `é só acessar ${LINK_OFERTA}`, false);
+        ofertaEnviada[chatId] = true;
+        scheduleFollowUps(chatId); // só agenda se quiser lembretes leves
+        return;
+      }
 
     
-      const MIN_INTERVAL = 2000; // 2 segundos
-    if (lastMessageTime[chatId] && agora - lastMessageTime[chatId] < MIN_INTERVAL) {
-    await sleep(1000); // em vez de ignorar, só espera
-    }
-    lastMessageTime[chatId] = agora;
+      // controle anti-spam
+      const MIN_INTERVAL = 2000;
+      if (lastMessageTime[chatId] && agora - lastMessageTime[chatId] < MIN_INTERVAL) {
+        await sleep(1000);
+      }
+      lastMessageTime[chatId] = agora;
+    
       await processarFila(chatId, async () => {
         resetFollowUps(chatId);
-
-        // texto base
-        let text = msg.body || "";
-        // registra no contexto (user)
-          atualizarContexto(chatId, { role: "user", content: text });
-
-        // inicializa memória
+    
+        atualizarContexto(chatId, { role: "user", content: text });
         if (!memoryStore[chatId]) memoryStore[chatId] = { history: [], lastActive: Date.now() };
         memoryStore[chatId].lastActive = Date.now();
-
-        // transcreve se tiver áudio
+    
+        // --- Transcrição de áudio ---
         try {
           if (msg.hasMedia) {
             const media = await msg.downloadMedia();
             const mime = media.mimetype || "";
-            const ext = mime && mime.includes("/") ? mime.split("/")[1].split(";")[0] : "ogg";
+            const ext = mime.includes("/") ? mime.split("/")[1].split(";")[0] : "ogg";
             const tmpName = path.join(__dirname, `tmp_${Date.now()}.${ext}`);
             fs.writeFileSync(tmpName, Buffer.from(media.data, "base64"));
+    
             try {
               text = await transcreverAudio(tmpName);
               log("🗣️ Transcrição (Vosk):", text);
@@ -709,37 +711,35 @@ if (/perfil|fanvue|link/i.test(text) && !ofertaEnviada[chatId]) {
         } catch (err) {
           log("erro processando media:", err);
         }
-
-        // registra memória
+    
         memoryStore[chatId].history.push({ role: "user", content: text });
         if (memoryStore[chatId].history.length > 16) memoryStore[chatId].history.shift();
+    
         log("mensagem do lead:", text);
-
-        // pausa natural
         await sleep(2500 + Math.random() * 1500);
-
+    
         const trig = checkAudioTrigger(text);
         if (trig && audiosDriveMap[trig]) {
           if (!audioJaEnviado(chatId, trig)) {
             await sendAudioHuman(chatId, trig);
           } else {
-            // se já mandou o mesmo áudio, apenas segue a conversa normalmente sem avisar
             const reply = await askOpenAI(chatId, text) || "";
             await sendTextHuman(chatId, reply, false);
           }
-          if (!ofertaEnviada[chatId] && conversationContext[chatId]?.mensagens?.length >= 6) {
+    
+          // se já pediu o link, não envia T3
+          if (!ofertaEnviada[chatId] && !userAskedForLink[chatId] && conversationContext[chatId]?.mensagens?.length >= 6) {
             await sendTextHuman(chatId, `quer ver mais? entra no meu canal ${LINK_OFERTA} 😏`, false);
             ofertaEnviada[chatId] = true;
           }
-          
+    
           scheduleFollowUps(chatId);
           return;
         }
-        
-
+    
         const reply = await askOpenAI(chatId, text) || "";
         const replyText = String(reply || "");
-
+    
         const audioMatch = replyText.match(/<<AUDIO:\s*([^>]+)>>/i);
         if (audioMatch) {
           const fname = audioMatch[1].trim();
@@ -747,9 +747,8 @@ if (/perfil|fanvue|link/i.test(text) && !ofertaEnviada[chatId]) {
             if (!audioJaEnviado(chatId, fname)) {
               await sendAudioHuman(chatId, fname);
             } else {
-  // se já mandou o mesmo áudio, apenas segue a conversa normalmente sem avisar
-  const reply = await askOpenAI(chatId, "continua a conversa normalmente") || "";
-  await sendTextHuman(chatId, reply, false);
+              const reply = await askOpenAI(chatId, "continua a conversa normalmente") || "";
+              await sendTextHuman(chatId, reply, false);
             }
           } else {
             await sendTextHuman(chatId, "amor, to com um probleminha aqui, me espera um pouquinho", false);
@@ -757,19 +756,24 @@ if (/perfil|fanvue|link/i.test(text) && !ofertaEnviada[chatId]) {
           scheduleFollowUps(chatId);
           return;
         }
-
+    
         await sendTextHuman(chatId, replyText, false);
-        scheduleFollowUps(chatId);
+    
+        // se o lead NÃO pediu link → agenda T3
+        if (!userAskedForLink[chatId]) {
+          scheduleFollowUps(chatId);
+        }
       });
     });
-// exemplo: limpar a bandeira depois de 6 horas
-function markUserAskedLink(chatId) {
-  userAskedForLink[chatId] = true;
-  setTimeout(() => {
-    delete userAskedForLink[chatId];
-  }, 6 * 60 * 60 * 1000); // 6 horas
-}
-
+    
+    // marca o usuário que pediu link (pra evitar followup depois)
+    function markUserAskedLink(chatId) {
+      userAskedForLink[chatId] = true;
+      setTimeout(() => {
+        delete userAskedForLink[chatId];
+      }, 6 * 60 * 60 * 1000); // limpa depois de 6 horas
+    }
+    
 
     // inicializa
     client.initialize().catch(console.error);
