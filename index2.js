@@ -354,7 +354,9 @@ function quebrarMensagemNatural(texto) {
     "já te falei",
     "te expliquei antes",
     "me conta mais disso",
-    "\\brs\\b"
+    "\\brs\\b",
+    "\\[pausa\\]",
+    "\\(pausa\\)"
   ];
 
   let msg = texto;
@@ -391,7 +393,12 @@ function quebrarMensagemNatural(texto) {
     if (textoAtual) {
       // Se ficaria muito longo, quebra antes
       if (textoAtual.length > 50 || (textoAtual + " " + parte).length > 80) {
-        pedacos.push(textoAtual.trim());
+        // Remove pontuação final se não for pergunta
+        let textoLimpo = textoAtual.trim();
+        if (!textoLimpo.endsWith('?')) {
+          textoLimpo = textoLimpo.replace(/[.!]+$/, '');
+        }
+        pedacos.push(textoLimpo);
         textoAtual = parte;
       } else {
         textoAtual += " " + parte;
@@ -402,13 +409,21 @@ function quebrarMensagemNatural(texto) {
     
     // Se o texto atual já tá com tamanho bom, quebra
     if (textoAtual.length > 65) {
-      pedacos.push(textoAtual.trim());
+      let textoLimpo = textoAtual.trim();
+      if (!textoLimpo.endsWith('?')) {
+        textoLimpo = textoLimpo.replace(/[.!]+$/, '');
+      }
+      pedacos.push(textoLimpo);
       textoAtual = "";
     }
   }
   
   if (textoAtual.trim()) {
-    pedacos.push(textoAtual.trim());
+    let textoLimpo = textoAtual.trim();
+    if (!textoLimpo.endsWith('?')) {
+      textoLimpo = textoLimpo.replace(/[.!]+$/, '');
+    }
+    pedacos.push(textoLimpo);
   }
   
   // Segunda passada: quebra mensagens ainda muito longas
@@ -429,7 +444,11 @@ function quebrarMensagemNatural(texto) {
       if (!temp) {
         temp = sub.trim();
       } else if ((temp + " " + sub).length > 70) {
-        pedacosFinais.push(temp.trim());
+        let textoLimpo = temp.trim();
+        if (!textoLimpo.endsWith('?')) {
+          textoLimpo = textoLimpo.replace(/[.!]+$/, '');
+        }
+        pedacosFinais.push(textoLimpo);
         temp = sub.trim();
       } else {
         temp += " " + sub.trim();
@@ -437,12 +456,28 @@ function quebrarMensagemNatural(texto) {
     }
     
     if (temp.trim()) {
-      pedacosFinais.push(temp.trim());
+      let textoLimpo = temp.trim();
+      if (!textoLimpo.endsWith('?')) {
+        textoLimpo = textoLimpo.replace(/[.!]+$/, '');
+      }
+      pedacosFinais.push(textoLimpo);
     }
   }
   
+  // Remove reticências excessivas e limpa pontuação (exceto ?)
+  const pedacosLimpos = pedacosFinais.map(p => {
+    let limpo = p.trim();
+    // Remove múltiplas reticências
+    limpo = limpo.replace(/\.{2,}/g, '');
+    // Remove pontuação final se não for pergunta
+    if (!limpo.endsWith('?')) {
+      limpo = limpo.replace(/[.!,]+$/, '');
+    }
+    return limpo;
+  }).filter(p => p.length > 0);
+  
   // Limita a 4 mensagens para não sobrecarregar
-  return pedacosFinais.slice(0, 4).filter(p => p.length > 0);
+  return pedacosLimpos.slice(0, 4);
 }
 
 // ==================== ENVIO DE TEXTO HUMANIZADO ====================
@@ -622,14 +657,17 @@ você é Bianca Lika, 21 anos, de Curitiba. mulher safada, confiante, sedutora.
 OBJETIVO: fazer o lead assinar o fanvue ${LINK_OFERTA}
 
 🎭 PERSONALIDADE NATURAL:
-- conversa como uma pessoa REAL, não como robô
+- conversa como uma pessoa REAL, sem formalidade
 - respostas CURTAS e DIRETAS (máximo 2-3 frases)
-- minúsculas sempre, pontuação simples
+- minúsculas sempre, SEM pontuação final (exceto ?)
 - emoji RARO (apenas quando faz sentido mesmo)
 - quebra pensamentos em mensagens separadas
 - fala de forma provocante mas natural
 - usa "kkkkk" ou "kkkk" quando algo é engraçado
 - variação no tom: às vezes mais séria, às vezes mais solta
+- NUNCA usa reticências (...) - fala direto
+- NUNCA escreve [pausa] ou qualquer marcação
+- linguagem natural do WhatsApp, sem formatação
 
 🔥 ESTILO DE COMUNICAÇÃO:
 - NUNCA responde tudo de uma vez
@@ -923,13 +961,14 @@ client.on("message", async (msg) => {
       await sendTextHuman(chatId, introducao, 'normal');
       
       // Pausa antes do link
-      await sleep(800 + Math.random() * 1200);
+      await sleep(1200 + Math.random() * 1500);
       
       // Envia link sozinho
+      await simularDigitando(chatId, 1000 + Math.random() * 1000);
       await client.sendMessage(chatId, LINK_OFERTA);
       
       // Depois explica o valor
-      await sleep(1500 + Math.random() * 1500);
+      await sleep(1800 + Math.random() * 1500);
       
       const explicacoes = [
         "lá eu mostro tudo",
