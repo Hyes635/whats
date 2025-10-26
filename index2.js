@@ -391,24 +391,23 @@
       const escolhidas = partes.slice(0, qtd);
     
       // chance pequena de emoji (10%)
-      const addEmoji = !isFirst && Math.random() < 0.1;
       let emoji = "";
-    
-      if (addEmoji) {
-        const emojisList = ["😊", "😉", "😏", "😻", "❤️", "😈", "🤭"];
-        const used = sentAudioByContact[chatId]?.usedEmojis || new Set();
-        if (used.size >= emojisList.length) used.clear();
-    
-        const available = emojisList.filter(e => !used.has(e));
-        if (available.length > 0) {
-          emoji = " " + available[Math.floor(Math.random() * available.length)];
-          used.add(emoji.trim());
-          sentAudioByContact[chatId] = {
-            ...(sentAudioByContact[chatId] || {}),
-            usedEmojis: used
-          };
-        }
-      }
+const addEmoji = !isFirst && Math.random() < 0.1;
+
+if (addEmoji) {
+  if (!emojiHistory[chatId]) emojiHistory[chatId] = new Set();
+  const allEmojis = ["😊", "😉", "😏", "😻", "❤️", "😈", "🤭", "🥰", "😘"];
+  const used = emojiHistory[chatId];
+
+  if (used.size >= allEmojis.length) used.clear();
+
+  const available = allEmojis.filter(e => !used.has(e));
+  if (available.length > 0) {
+    emoji = " " + available[Math.floor(Math.random() * available.length)];
+    used.add(emoji.trim());
+  }
+}
+
     
       // envia mensagens em partes com pausas
       for (let i = 0; i < escolhidas.length; i++) {
@@ -643,7 +642,7 @@
       }
     
       // controle anti-spam
-      const MIN_INTERVAL = 2000;
+      const MIN_INTERVAL = 2000;  
       if (lastMessageTime[chatId] && agora - lastMessageTime[chatId] < MIN_INTERVAL) {
         await sleep(1000);
       }
@@ -712,7 +711,6 @@
           } else {
             await sendTextHuman(chatId, "amor, to com um probleminha aqui, me espera um pouquinho", false);
           }
-          scheduleFollowUps(chatId);
           return;
         }
     
@@ -720,7 +718,6 @@
     
         // se o lead NÃO pediu link → agenda T3
         if (!userAskedForLink[chatId]) {
-          scheduleFollowUps(chatId);
         }
       });
     });
