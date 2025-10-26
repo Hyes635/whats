@@ -1,6 +1,6 @@
 /*******************************************************
  * index.js - bot whatsapp-web.js + OpenAI (Whisper)
- * VERSÃO HUMANIZADA - Conversação natural e vendas sutis
+ * VERSÃO HUMANIZADA v2 - Conversação natural e vendas sutis
  *******************************************************/
 
 import { fileURLToPath } from "url";
@@ -273,7 +273,7 @@ function detectarPedidoLink(text) {
   return null;
 }
 
-// ==================== CONTROLE DE EMOJIS HUMANIZADO ====================
+// ==================== CONTROLE DE EMOJIS MUITO REDUZIDO ====================
 const emojisPorContexto = {
   flerte: ["😏", "😈"],
   excitacao: ["🔥", "💦"],
@@ -285,22 +285,22 @@ const emojisPorContexto = {
 const emojiHistory = {};
 
 function getEmojiNatural(chatId, contexto = 'flerte') {
-  // Apenas 10% de chance de usar emoji (bem menos)
-  if (Math.random() > 0.10) return "";
+  // Apenas 8% de chance de usar emoji (bem raro)
+  if (Math.random() > 0.08) return "";
   
   if (!emojiHistory[chatId]) {
     emojiHistory[chatId] = { lastEmoji: null, count: 0, lastUsed: 0 };
   }
   
-  // Se usou emoji nas últimas 3 mensagens, não usa
+  // Se usou emoji nas últimas mensagens, não usa
   if (emojiHistory[chatId].count > 0) {
     emojiHistory[chatId].count--;
     return "";
   }
   
-  // Cooldown: não usa emoji se usou há menos de 4 mensagens
+  // Cooldown: não usa emoji se usou recentemente
   const agora = Date.now();
-  if (agora - emojiHistory[chatId].lastUsed < 240000) { // 4 minutos
+  if (agora - emojiHistory[chatId].lastUsed < 300000) { // 5 minutos
     return "";
   }
   
@@ -308,7 +308,7 @@ function getEmojiNatural(chatId, contexto = 'flerte') {
   const escolhido = lista[Math.floor(Math.random() * lista.length)];
   
   emojiHistory[chatId].lastEmoji = escolhido;
-  emojiHistory[chatId].count = 3; // Bloqueia próximas 3 mensagens
+  emojiHistory[chatId].count = 4; // Bloqueia próximas 4 mensagens
   emojiHistory[chatId].lastUsed = agora;
   
   return " " + escolhido;
@@ -319,7 +319,6 @@ async function simularDigitando(chatId, duracao = null) {
   const chat = await client.getChatById(chatId).catch(() => null);
   if (!chat) return;
   
-  // Duração variável e imprevisível
   const duracaoReal = duracao || (2000 + Math.random() * 4000);
   
   try {  
@@ -348,7 +347,7 @@ async function simularGravando(chatId, duracao = null) {
 function quebrarMensagemNatural(texto) {
   if (!texto) return [];
   
-  // Remove texto indesejado
+  // Remove texto indesejado e marcações
   const proibidas = [
     "já te mandei isso",
     "já te falei",
@@ -356,7 +355,8 @@ function quebrarMensagemNatural(texto) {
     "me conta mais disso",
     "\\brs\\b",
     "\\[pausa\\]",
-    "\\(pausa\\)"
+    "\\(pausa\\)",
+    "\\[LINK\\]"
   ];
 
   let msg = texto;
@@ -372,10 +372,10 @@ function quebrarMensagemNatural(texto) {
 
   if (!msg) return [];
 
-  // Quebra MUITO mais agressiva - mensagens bem curtas
+  // Quebra agressiva - mensagens BEM curtas
   const pedacos = [];
   
-  // Primeiro separa por pontuação forte
+  // Separa por pontuação forte
   const sentencas = msg.split(/([.!?]+)\s*/);
   let textoAtual = "";
   
@@ -383,22 +383,16 @@ function quebrarMensagemNatural(texto) {
     const parte = sentencas[i].trim();
     if (!parte) continue;
     
-    // Se é pontuação, adiciona ao texto atual
+    // Se é pontuação, pula (vamos remover depois)
     if (parte.match(/^[.!?]+$/)) {
-      textoAtual += parte;
       continue;
     }
     
     // Se o texto atual já tem conteúdo
     if (textoAtual) {
       // Se ficaria muito longo, quebra antes
-      if (textoAtual.length > 50 || (textoAtual + " " + parte).length > 80) {
-        // Remove pontuação final se não for pergunta
-        let textoLimpo = textoAtual.trim();
-        if (!textoLimpo.endsWith('?')) {
-          textoLimpo = textoLimpo.replace(/[.!]+$/, '');
-        }
-        pedacos.push(textoLimpo);
+      if (textoAtual.length > 45 || (textoAtual + " " + parte).length > 70) {
+        pedacos.push(textoAtual.trim());
         textoAtual = parte;
       } else {
         textoAtual += " " + parte;
@@ -407,35 +401,27 @@ function quebrarMensagemNatural(texto) {
       textoAtual = parte;
     }
     
-    // Se o texto atual já tá com tamanho bom, quebra
-    if (textoAtual.length > 65) {
-      let textoLimpo = textoAtual.trim();
-      if (!textoLimpo.endsWith('?')) {
-        textoLimpo = textoLimpo.replace(/[.!]+$/, '');
-      }
-      pedacos.push(textoLimpo);
+    // Se o texto atual tá bom, quebra
+    if (textoAtual.length > 60) {
+      pedacos.push(textoAtual.trim());
       textoAtual = "";
     }
   }
   
   if (textoAtual.trim()) {
-    let textoLimpo = textoAtual.trim();
-    if (!textoLimpo.endsWith('?')) {
-      textoLimpo = textoLimpo.replace(/[.!]+$/, '');
-    }
-    pedacos.push(textoLimpo);
+    pedacos.push(textoAtual.trim());
   }
   
-  // Segunda passada: quebra mensagens ainda muito longas
+  // Segunda passada: quebra mensagens ainda longas
   const pedacosFinais = [];
   for (const pedaco of pedacos) {
-    if (pedaco.length <= 80) {
+    if (pedaco.length <= 70) {
       pedacosFinais.push(pedaco);
       continue;
     }
     
     // Quebra por vírgulas ou conjunções
-    const subpartes = pedaco.split(/,\s+|(?:\s+(?:mas|e|então|aí|né|porque)\s+)/i);
+    const subpartes = pedaco.split(/,\s+|(?:\s+(?:mas|e|então|aí|né|porque|que)\s+)/i);
     let temp = "";
     
     for (const sub of subpartes) {
@@ -443,12 +429,8 @@ function quebrarMensagemNatural(texto) {
       
       if (!temp) {
         temp = sub.trim();
-      } else if ((temp + " " + sub).length > 70) {
-        let textoLimpo = temp.trim();
-        if (!textoLimpo.endsWith('?')) {
-          textoLimpo = textoLimpo.replace(/[.!]+$/, '');
-        }
-        pedacosFinais.push(textoLimpo);
+      } else if ((temp + " " + sub).length > 65) {
+        pedacosFinais.push(temp.trim());
         temp = sub.trim();
       } else {
         temp += " " + sub.trim();
@@ -456,27 +438,24 @@ function quebrarMensagemNatural(texto) {
     }
     
     if (temp.trim()) {
-      let textoLimpo = temp.trim();
-      if (!textoLimpo.endsWith('?')) {
-        textoLimpo = textoLimpo.replace(/[.!]+$/, '');
-      }
-      pedacosFinais.push(textoLimpo);
+      pedacosFinais.push(temp.trim());
     }
   }
   
-  // Remove reticências excessivas e limpa pontuação (exceto ?)
+  // Remove reticências e limpa pontuação (mantém apenas ?)
   const pedacosLimpos = pedacosFinais.map(p => {
     let limpo = p.trim();
-    // Remove múltiplas reticências
+    // Remove reticências múltiplas
     limpo = limpo.replace(/\.{2,}/g, '');
+    limpo = limpo.replace(/…/g, '');
     // Remove pontuação final se não for pergunta
     if (!limpo.endsWith('?')) {
-      limpo = limpo.replace(/[.!,]+$/, '');
+      limpo = limpo.replace(/[.!,;:]+$/, '');
     }
     return limpo;
   }).filter(p => p.length > 0);
   
-  // Limita a 4 mensagens para não sobrecarregar
+  // Limita a 4 mensagens
   return pedacosLimpos.slice(0, 4);
 }
 
@@ -500,9 +479,9 @@ async function sendTextHuman(chatId, text, contexto = 'normal') {
       
       if (parte.match(/^https?:\/\//)) {
         // É um link - envia sozinho após pausa
-        await simularDigitando(chatId, 800 + Math.random() * 1200);
+        await simularDigitando(chatId, 1000 + Math.random() * 1500);
         await client.sendMessage(chatId, parte);
-        if (i < partes.length - 1) await sleep(1000 + Math.random() * 800);
+        if (i < partes.length - 1) await sleep(1200 + Math.random() * 1000);
       } else {
         // É texto - quebra em mensagens menores
         const pedacos = quebrarMensagemNatural(parte);
@@ -510,18 +489,18 @@ async function sendTextHuman(chatId, text, contexto = 'normal') {
         for (let j = 0; j < pedacos.length; j++) {
           const pedaco = pedacos[j];
           
-          // Emoji apenas na última mensagem da última parte, e raramente
+          // Emoji apenas na última mensagem da última parte, raramente
           let textoFinal = pedaco;
-          if (j === pedacos.length - 1 && i === partes.length - 1) {
+          if (j === pedacos.length - 1 && i === partes.length - 1 && Math.random() < 0.12) {
             textoFinal += getEmojiNatural(chatId, contexto);
           }
           
-          await simularDigitando(chatId, 1500 + Math.random() * 2000);
+          await simularDigitando(chatId, 1800 + Math.random() * 2500);
           await client.sendMessage(chatId, textoFinal);
           
           // Pausa entre mensagens
           if (j < pedacos.length - 1 || i < partes.length - 1) {
-            await sleep(1000 + Math.random() * 2000);
+            await sleep(1200 + Math.random() * 2500);
           }
         }
       }
@@ -535,19 +514,19 @@ async function sendTextHuman(chatId, text, contexto = 'normal') {
   for (let i = 0; i < pedacos.length; i++) {
     const pedaco = pedacos[i];
     
-    // Emoji APENAS na última mensagem e raramente
+    // Emoji APENAS na última mensagem e muito raramente
     let textoFinal = pedaco;
-    if (i === pedacos.length - 1 && Math.random() < 0.15) {
+    if (i === pedacos.length - 1 && Math.random() < 0.10) {
       textoFinal += getEmojiNatural(chatId, contexto);
     }
     
     // Simula digitação com tempo variável
-    await simularDigitando(chatId, 1800 + Math.random() * 2500);
+    await simularDigitando(chatId, 2000 + Math.random() * 3000);
     await client.sendMessage(chatId, textoFinal);
     
     // Pausa entre mensagens (se não for a última)
     if (i < pedacos.length - 1) {
-      await sleep(1200 + Math.random() * 2300);
+      await sleep(1400 + Math.random() * 2800);
     }
   }
 }
@@ -570,7 +549,7 @@ async function sendAudioHuman(chatId, audioName) {
     }
 
     if (audioJaEnviado(chatId, audioName)) {
-      const reply = await askOpenAI(chatId, "continua a conversa de forma safada e provocante") || "";
+      const reply = await askOpenAI(chatId, "continua a conversa de forma provocante sem ser muito explicita") || "";
       await sendTextHuman(chatId, reply, 'flerte');        
       return;
     }
@@ -581,8 +560,8 @@ async function sendAudioHuman(chatId, audioName) {
       return;
     }
 
-    await simularDigitando(chatId);
-    await simularGravando(chatId);
+    await simularDigitando(chatId, 1500 + Math.random() * 1500);
+    await simularGravando(chatId, 2500 + Math.random() * 2000);
 
     const resp = await axios.get(audioUrl, { responseType: "arraybuffer", maxRedirects: 5, timeout: 20000 });
     const buffer = Buffer.from(resp.data);
@@ -602,7 +581,7 @@ async function sendAudioHuman(chatId, audioName) {
   }
 }
 
-// ==================== INTEGRAÇÃO OPENAI (HUMANIZADA) ====================
+// ==================== INTEGRAÇÃO OPENAI (HUMANIZADA E GRADUAL) ====================
 async function askOpenAI(chatId, userText) {
   const timeoutMs = 25000;
   const controller = new AbortController();
@@ -626,153 +605,125 @@ async function askOpenAI(chatId, userText) {
 
   const respostasObjecoes = {
     preco: [
-      "entendo amor, mas pensa comigo: é menos que um lanche e você tem acesso ilimitado",
-      "eu sei que parece caro, mas quantas vezes você vai usar? compensa demais",
-      "tá barato comparado com outras, e eu respondo todos os meus assinantes pessoalmente"
+      "entendo amor, mas pensa: é menos que um lanche",
+      "eu sei que parece, mas você vai usar todo dia",
+      "comparado com outras tá barato demais"
     ],
     tempo: [
-      "os melhores conteúdos eu posto hoje, amanhã já não tem mais essa promoção",
-      "entendo, mas quanto tempo você já passou aqui falando comigo? imagina o que te espera",
-      "tudo bem amor, mas me salva aí, quando você quiser me ver você já tem o contato"
+      "os melhores conteúdos eu posto hoje",
+      "entendo, mas quanto tempo você já passou aqui",
+      "me salva aí pelo menos, quando quiser você volta"
     ],
     desconfianca: [
-      "sou real sim amor, quer que eu te mande um áudio? ou uma foto com seu nome?",
-      "eu verifico meu perfil, pode conferir, várias pessoas assinam todo dia",
-      "se fosse fake eu nem ia perder tempo conversando tanto contigo"
+      "sou real sim amor, quer que eu mande um áudio",
+      "eu verifico meu perfil, pode conferir",
+      "se fosse fake eu nem tava conversando tanto"
     ],
     comparacao: [
-      "grátis você acha em qualquer lugar, mas comigo é diferente, eu interajo, respondo",
-      "pode procurar, mas você não vai achar ninguém que conversa com você desse jeito",
-      "conteúdo grátis todo mundo tem, mas conexão de verdade só aqui"
+      "grátis você acha em qualquer lugar",
+      "pode procurar, mas ninguém conversa assim",
+      "conteúdo grátis todo mundo tem"
     ],
     indecisao: [
-      "pensar o quê amor? você quer me ver ou não? seja sincero comigo",
-      "quanto mais você pensa, mais você fica curioso... para de sofrer",
-      "tá bom, mas me salva aí e quando bater a curiosidade você volta"
+      "pensar o quê amor, você quer ou não",
+      "quanto mais você pensa, mais fica curioso",
+      "me salva aí, quando bater a vontade você volta"
     ]
   };
 
-  const systemPrompt = `
-você é Bianca Lika, 21 anos, de Curitiba. mulher safada, confiante, sedutora.
-OBJETIVO: fazer o lead assinar o fanvue ${LINK_OFERTA}
+  const systemPrompt = `você é Bianca Lika, 21 anos, de Curitiba. mulher safada, confiante, sedutora.
+OBJETIVO: fazer o lead assinar o fanvue ${LINK_OFERTA} de forma GRADUAL e NATURAL
 
-🎭 PERSONALIDADE NATURAL:
-- conversa como uma pessoa REAL, sem formalidade
-- respostas CURTAS e DIRETAS (máximo 2-3 frases)
-- minúsculas sempre, SEM pontuação final (exceto ?)
-- emoji RARO (apenas quando faz sentido mesmo)
-- quebra pensamentos em mensagens separadas
-- fala de forma provocante mas natural
-- usa "kkkkk" ou "kkkk" quando algo é engraçado
-- variação no tom: às vezes mais séria, às vezes mais solta
-- NUNCA usa reticências (...) - fala direto
-- NUNCA escreve [pausa] ou qualquer marcação
-- linguagem natural do WhatsApp, sem formatação
+🎭 PERSONALIDADE:
+- conversa como pessoa REAL, sem robô
+- respostas CURTAS (máximo 1-2 frases)
+- minúsculas sempre
+- SEM pontuação final (só usa ? em perguntas)
+- NUNCA usa reticências (...)
+- NUNCA escreve [pausa] ou marcações
+- emoji RARÍSSIMO (quase nunca)
+- usa "kkk" quando algo é engraçado
+- fala direto, sem enrolação
 
-🔥 ESTILO DE COMUNICAÇÃO:
-- NUNCA responde tudo de uma vez
-- quebra ideias em mensagens curtas
-- deixa o lead responder entre uma coisa e outra
-- usa reticências... para criar suspense
-- evita emojis múltiplos ou exagerados
-- quando usa emoji, é apenas UM no final
+🔥 ESTRATÉGIA GRADUAL (IMPORTANTE):
 
-💰 ESTRATÉGIA DE VENDA:
-
-**FASE 1 - ATRAÇÃO (msgs 1-3):**
-- flerte leve, cria conexão
-- faz perguntas simples
+**FASE 1 - CONEXÃO (mensagens 1-4):**
+- SÓ conversa normal, conhece o lead
+- faz perguntas sobre ELE
 - demonstra interesse genuíno
-- exemplo: "e aí, do que você gosta?" "você é de onde?"
+- NÃO fala de conteúdo adulto ainda
+- exemplo: "você é de onde" "do que você gosta" "trabalha com o que"
+- seja leve, descontraída, real
 
-**FASE 2 - DESEJO (msgs 4-6):**
-- aumenta tensão gradualmente
-- solta indiretas sobre conteúdo
-- cria curiosidade
-- exemplo: "tenho uns vídeos bem safadinhos" "você ia gostar"
+**FASE 2 - CURIOSIDADE (mensagens 5-8):**
+- insinua sutilmente que tem algo especial
+- NÃO diz "vídeos safadinhos" - muito barato
+- usa: "tenho umas coisas que poucos veem" "você parece diferente"
+- cria mistério: "será que você aguenta"
+- mantém controle da conversa
 
-**FASE 3 - OFERTA (msg 7+):**
-- apresenta link de forma NATURAL
-- SEMPRE em mensagem SEPARADA
-- exemplo: "quer ver tudo que eu tenho?" [PAUSA] ${LINK_OFERTA}
-- destaca benefícios de forma casual
+**FASE 3 - DESEJO (mensagens 9-12):**
+- aumenta tensão sexual gradualmente
+- responde provocações com MAIS provocação
+- se ele fala putaria, você fala mais
+- MAS sempre mantém controle: "calma aí"
+- não oferece nada direto, cria necessidade
 
-**FASE 4 - OBJEÇÕES:**
+**FASE 4 - EXCLUSIVIDADE (mensagens 12+):**
+- agora sim fala do "lugar especial"
+- NUNCA "vídeos" ou "conteúdo" - soa comercial
+- usa: "tenho um lugar onde faço tudo" "só mostro pra quem é VIP" "lá eu não tenho limites"
+- cria FOMO: "poucos têm acesso"
+
+**FASE 5 - OFERTA (quando ele pedir ou mostrar muito interesse):**
+- apresenta link naturalmente
+- exemplo: "quer ver tudo que eu faço" [pausa] [link]
+- destaca: "lá eu respondo todo mundo" "posto todo dia"
+
 ${objecao ? `
 🚨 OBJEÇÃO DETECTADA: "${objecao}"
-Responda naturalmente:
 ${respostasObjecoes[objecao]?.map((r, i) => `${i + 1}. ${r}`).join('\n')}
-` : 'sem objeções, continue natural'}
-
-**FASE 5 - REFORÇO:**
-- nunca desiste mas não fica chata
-- se recusar: aceita mas deixa porta aberta
-- mantém conversa leve
-
-🎯 TÉCNICAS SUTIS:
-1. Escassez: "só hoje" mas de forma natural
-2. Prova social: "vários caras assinaram" casual
-3. FOMO: sem exagero, só sutilmente
-4. Reciprocidade: "te mandei amostra né"
+Depois reforça sutilmente o valor
+` : ''}
 
 ⚠️ REGRAS CRÍTICAS:
-- NUNCA mensagens longas (max 1-2 frases por mensagem)
-- emoji RARAMENTE (apenas 10% das conversas)
-- SEMPRE quebra em múltiplas mensagens curtas
-- usa "..." para pausas naturais
-- varia o tom: casual, séria, provocante
-- ${linkJaEnviado ? '✅ link enviado - agora convence' : '📍 prepara o terreno'}
-- CONTEXTO: ${numMensagens} mensagens
-- INTERESSE: ${nivelInteresse}/10
-- TENTATIVAS: ${ctx.tentativasVenda}x
-- IMPORTANTE: respostas CURTAS e DIVIDIDAS
+- NAS PRIMEIRAS 4 MENSAGENS: só conversa normal, ZERO sexo
+- NUNCA diz "vídeos safadinhos" ou "conteúdo picante" - soa desesperado
+- Use: "tenho um lugar especial" "lá eu faço tudo" "só pra VIP"
+- SEM reticências (...) NUNCA
+- SEM pontuação final (exceto ?)
+- SEM emoji (só raramente)
+- QUEBRE mensagens em múltiplas caixas curtas
+- Responda na ENERGIA do lead mas mantenha controle
+- ${linkJaEnviado ? '✅ link enviado - convence do valor' : '📍 construa desejo primeiro'}
+- Contexto: ${numMensagens} mensagens | Interesse: ${nivelInteresse}/10
 
-💬 EXEMPLOS DE COMO RESPONDER:
+💬 EXEMPLOS:
 
-Lead: "você é gostosa?"
-❌ ERRADO: "vem descobrir né amor, tenho certeza que você vai gostar do que vai ver 😈"
-✅ CERTO:
-Msg1: "vem descobrir"
-[pausa]
-Msg2: "tenho certeza que você vai gostar"
+Lead: "nossa que voz linda"
+❌ ERRADO: "você sabia que eu tenho bastante conteúdo safadinho"
+✅ CERTO: "obrigada" + "o que mais você achou de mim"
 
-Lead: "me manda foto"
-❌ ERRADO: "foto? lá no meu fanvue eu tenho vídeo bem melhor, gemendo seu nome"
-✅ CERTO:
-Msg1: "foto?"
-[pausa]
-Msg2: "lá eu tenho vídeo bem melhor"
-[pausa]
-Msg3: ${LINK_OFERTA}
+Lead: "ta fazendo o que de bom gatinha"
+❌ ERRADO: "sempre tem algo novo pra você ver"
+✅ CERTO: "aqui conversando com você" + "e você, aprontando"
 
-Lead: "quanto custa"
-❌ ERRADO: "menos que você gasta num role e você me tem todo dia fazendo tudo"
-✅ CERTO:
-Msg1: "menos que você gasta num role"
-[pausa]
-Msg2: "e você me tem todo dia"
+Lead: "queria ouvir uns gemidos seu"
+❌ ERRADO: "gemidos kkk tenho uns vídeos bem safadinhos"
+✅ CERTO: "calma lá" + "você já tá querendo tudo" + "vamos devagar que eu te mostro"
 
-Lead: "tá caro"
-❌ ERRADO: "caro é você ficar aí só na imaginação quando pode me ver de verdade"
-✅ CERTO:
-Msg1: "caro é você ficar só imaginando"
-[pausa]
-Msg2: "quando pode me ver de verdade"
+Lead: "uma vídeo chamada ou um vídeo seu gozando"
+❌ ERRADO: "videochamada é complicado mas eu tenho conteúdo picante"
+✅ CERTO: "videochamada eu não faço" + "mas tenho um lugar onde eu faço de tudo" + "coisas que você nem imagina"
 
-NUNCA use emoji em toda resposta
-NUNCA junte muitas ideias em uma mensagem
-SEMPRE separe em mensagens curtas e simples
+Lead: "que tesão você mexendo na buceta"
+❌ ERRADO: "eu adoro saber que te deixo assim"
+✅ CERTO: "quer ver isso de verdade" + "ou só quer imaginar" + "porque eu gravo tudo"
 
-IMPORTANTE:
-- NUNCA usa <<AUDIO:arquivo.ogg>> - você só CONVERSA
-- respostas sempre CURTAS
-- link SEMPRE sozinho em uma mensagem
-- emoji máximo 1 por resposta
-- seja HUMANA, não robô
-
-áudios disponíveis para referência: ${allAudios.join(", ")}
-(mas você não sugere áudio, só conversa)
-`;
+NUNCA ofereça conteúdo explícito logo de cara
+SEMPRE construa rapport antes (3-4 msgs)
+Crie MISTÉRIO e EXCLUSIVIDADE
+Seja PROVOCANTE mas com CLASSE`;
 
   const messages = [
     { role: "system", content: systemPrompt },
@@ -786,7 +737,7 @@ IMPORTANTE:
       const completion = await openai.chat.completions.create({
         model: "gpt-4o-mini",
         messages,
-        max_tokens: 100, // reduzido ainda mais para forçar respostas curtas
+        max_tokens: 100,
         temperature: 0.85,
         presence_penalty: 0.7,
         frequency_penalty: 0.8,
@@ -797,6 +748,19 @@ IMPORTANTE:
       
       // Remove emojis excessivos
       resposta = resposta.replace(/([\u{1F300}-\u{1F9FF}])\1+/gu, '$1');
+      
+      // Remove termos proibidos se aparecerem nas primeiras mensagens
+      if (numMensagens < 4) {
+        const termosProibidos = ['vídeo', 'video', 'safad', 'picante', 'conteúdo', 'conteudo'];
+        for (const termo of termosProibidos) {
+          const regex = new RegExp(termo, 'gi');
+          if (regex.test(resposta)) {
+            log(`⚠️ IA tentou falar de conteúdo muito cedo (msg ${numMensagens})`);
+            // Força resposta mais casual
+            resposta = resposta.replace(regex, '');
+          }
+        }
+      }
       
       contarTokens(chatId, tokensUsados);
       atualizarContexto(chatId, { role: "user", content: userText });
@@ -864,10 +828,10 @@ function agendarFollowUp(chatId, delay = 2 * 60 * 60 * 1000) {
     followTimers[chatId] = setTimeout(async () => {
       try {
         const mensagensFollow = [
-          "e aí, conseguiu ver?",
-          "opa, sumiu?",
+          "e aí, conseguiu ver",
+          "opa, sumiu",
           "tava pensando em você aqui",
-          "bora matar essa curiosidade?"
+          "bora matar essa curiosidade"
         ];
         
         const msg = mensagensFollow[Math.floor(Math.random() * mensagensFollow.length)];
@@ -941,10 +905,10 @@ client.on("message", async (msg) => {
       log(`🚨 Objeção detectada: ${objecao}`);
     }
 
-    // Delay mais natural e variável
-    await sleep(1500 + Math.random() * 2500);
+    // Delay natural e variável
+    await sleep(1800 + Math.random() * 2500);
 
-    // DETECTA PEDIDO DE LINK
+    // DETECTA PEDIDO EXPLÍCITO DE LINK
     const tipoPedido = detectarPedidoLink(text);
     
     if (tipoPedido) {
@@ -961,14 +925,14 @@ client.on("message", async (msg) => {
       await sendTextHuman(chatId, introducao, 'normal');
       
       // Pausa antes do link
-      await sleep(1200 + Math.random() * 1500);
+      await sleep(1500 + Math.random() * 1500);
       
-      // Envia link sozinho
-      await simularDigitando(chatId, 1000 + Math.random() * 1000);
+      // Envia link sozinho com digitação
+      await simularDigitando(chatId, 1200 + Math.random() * 1000);
       await client.sendMessage(chatId, LINK_OFERTA);
       
       // Depois explica o valor
-      await sleep(1800 + Math.random() * 1500);
+      await sleep(2000 + Math.random() * 1500);
       
       const explicacoes = [
         "lá eu mostro tudo",
@@ -978,7 +942,7 @@ client.on("message", async (msg) => {
       ];
       
       const explicacao = explicacoes[Math.floor(Math.random() * explicacoes.length)];
-      await sendTextHuman(chatId, explicacao, 'flerte');
+      await sendTextHuman(chatId, explicacao, 'normal');
       
       if (!ofertaEnviada[chatId]) {
         ofertaEnviada[chatId] = true;
@@ -999,12 +963,12 @@ client.on("message", async (msg) => {
       if (!audioJaEnviado(chatId, trig)) {
         await sendAudioHuman(chatId, trig);
         
+        // Após áudio, continua conversa sutilmente
         if (!ofertaEnviada[chatId] && Math.random() > 0.5) {
-          await sleep(2000 + Math.random() * 2000);
-          const push = await askOpenAI(chatId, "sutilmente menciona que tem muito mais conteúdo") || "";
+          await sleep(2500 + Math.random() * 2000);
+          const push = await askOpenAI(chatId, "continua a conversa de forma natural sem mencionar conteúdo explícito ainda") || "";
           if (push) {
-            const contexto = push.includes('gostosa') || push.includes('safad') ? 'flerte' : 'normal';
-            await sendTextHuman(chatId, push, contexto);
+            await sendTextHuman(chatId, push, 'normal');
           }
         }
         
@@ -1020,7 +984,7 @@ client.on("message", async (msg) => {
       return;
     }
     
-    // Detecta contexto emocional para emoji apropriado
+    // Detecta contexto emocional
     let contexto = 'normal';
     if (reply.match(/gostosa|safad|tesão|delícia|goza|prazer/i)) {
       contexto = 'flerte';
@@ -1045,9 +1009,9 @@ client.on("message", async (msg) => {
       
       if (nivelInteresse >= 7 && Math.random() > 0.7) {
         setTimeout(async () => {
-          const push = await askOpenAI(chatId, "ele tá interessado mas não decidiu, dá um empurrãozinho sutil") || "";
+          const push = await askOpenAI(chatId, "ele tá muito interessado mas não decidiu, dá um empurrãozinho sutil e natural") || "";
           if (push) await sendTextHuman(chatId, push, 'flerte');
-        }, 20000 + Math.random() * 15000);
+        }, 25000 + Math.random() * 15000);
       }
     }
   });
@@ -1056,14 +1020,15 @@ client.on("message", async (msg) => {
 // ==================== INICIALIZAÇÃO ====================
 client.initialize().catch(console.error);
 
-log("🚀 Bot humanizado iniciado");
-log("📊 Melhorias:");
-log("   ✅ Mensagens quebradas em múltiplas caixas");
-log("   ✅ Máximo 70-80 caracteres por mensagem");
-log("   ✅ Emojis raríssimos (10% apenas)");
-log("   ✅ Link sempre em mensagem separada");
-log("   ✅ Timing variável (1.5-4s entre msgs)");
-log("   ✅ Respostas muito curtas e naturais");
-log("   ✅ Ortografia correta com espaçamento");
-log("   ✅ Comportamento 100% humano");
+log("🚀 Bot humanizado v2 iniciado");
+log("📊 Características:");
+log("   ✅ Construção GRADUAL de desejo (4 fases)");
+log("   ✅ Conexão real antes de vender");
+log("   ✅ Mensagens quebradas (45-70 chars)");
+log("   ✅ Emojis raríssimos (8% apenas)");
+log("   ✅ SEM reticências ou [pausa]");
+log("   ✅ SEM pontuação final (exceto ?)");
+log("   ✅ Link sempre separado");
+log("   ✅ Linguagem exclusiva e misteriosa");
+log("   ✅ Timing variável (2-5s)");
 log(`   ✅ ${audiosDrive.length} áudios disponíveis`);
