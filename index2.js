@@ -277,34 +277,39 @@ function detectarPedidoLink(text) {
 const emojisPorContexto = {
   flerte: ["😏", "😈"],
   excitacao: ["🔥", "💦"],
-  carinho: ["😘", "🥰", "❤️"],
-  provocacao: ["😏", "🤭"],
-  risada: ["😂", "kkkkk", "kkkk"],
+  carinho: ["😘", "❤️"],
+  provocacao: ["😏"],
+  risada: ["😂"],
 };
 
 const emojiHistory = {};
 
 function getEmojiNatural(chatId, contexto = 'flerte') {
-  // Apenas 25% de chance de usar emoji
-  if (Math.random() > 0.25) return "";
+  // Apenas 10% de chance de usar emoji (bem menos)
+  if (Math.random() > 0.10) return "";
   
   if (!emojiHistory[chatId]) {
-    emojiHistory[chatId] = { lastEmoji: null, count: 0 };
+    emojiHistory[chatId] = { lastEmoji: null, count: 0, lastUsed: 0 };
   }
   
-  // Se já usou emoji recentemente, reduz chances
+  // Se usou emoji nas últimas 3 mensagens, não usa
   if (emojiHistory[chatId].count > 0) {
-    if (Math.random() > 0.3) {
-      emojiHistory[chatId].count = 0;
-      return "";
-    }
+    emojiHistory[chatId].count--;
+    return "";
+  }
+  
+  // Cooldown: não usa emoji se usou há menos de 4 mensagens
+  const agora = Date.now();
+  if (agora - emojiHistory[chatId].lastUsed < 240000) { // 4 minutos
+    return "";
   }
   
   const lista = emojisPorContexto[contexto] || emojisPorContexto.flerte;
   const escolhido = lista[Math.floor(Math.random() * lista.length)];
   
   emojiHistory[chatId].lastEmoji = escolhido;
-  emojiHistory[chatId].count++;
+  emojiHistory[chatId].count = 3; // Bloqueia próximas 3 mensagens
+  emojiHistory[chatId].lastUsed = agora;
   
   return " " + escolhido;
 }
@@ -361,41 +366,83 @@ function quebrarMensagemNatural(texto) {
   msg = msg
     .replace(/\s{2,}/g, " ")
     .replace(/^\s+|\s+$/g, "")
-    .replace(/\s+([.,!?])/g, "$1")
     .trim();
 
   if (!msg) return [];
 
-  // Quebra natural por pontuação e tamanho
+  // Quebra MUITO mais agressiva - mensagens bem curtas
   const pedacos = [];
-  let atual = "";
   
-  const frases = msg.split(/([.!?]+\s+|\n)/);
+  // Primeiro separa por pontuação forte
+  const sentencas = msg.split(/([.!?]+)\s*/);
+  let textoAtual = "";
   
-  for (let i = 0; i < frases.length; i++) {
-    const parte = frases[i];
+  for (let i = 0; i < sentencas.length; i++) {
+    const parte = sentencas[i].trim();
+    if (!parte) continue;
     
-    if (!parte || parte.match(/^[.!?\s]+$/)) continue;
-    
-    // Se a frase atual + nova parte fica muito longa, quebra
-    if ((atual + parte).length > 120 && atual.length > 0) {
-      pedacos.push(atual.trim());
-      atual = parte;
-    } else {
-      atual += parte;
+    // Se é pontuação, adiciona ao texto atual
+    if (parte.match(/^[.!?]+$/)) {
+      textoAtual += parte;
+      continue;
     }
     
-    // Quebra em frases completas quando faz sentido
-    if (parte.match(/[.!?]$/) && atual.length > 40) {
-      pedacos.push(atual.trim());
-      atual = "";
+    // Se o texto atual já tem conteúdo
+    if (textoAtual) {
+      // Se ficaria muito longo, quebra antes
+      if (textoAtual.length > 50 || (textoAtual + " " + parte).length > 80) {
+        pedacos.push(textoAtual.trim());
+        textoAtual = parte;
+      } else {
+        textoAtual += " " + parte;
+      }
+    } else {
+      textoAtual = parte;
+    }
+    
+    // Se o texto atual já tá com tamanho bom, quebra
+    if (textoAtual.length > 65) {
+      pedacos.push(textoAtual.trim());
+      textoAtual = "";
     }
   }
   
-  if (atual.trim()) pedacos.push(atual.trim());
+  if (textoAtual.trim()) {
+    pedacos.push(textoAtual.trim());
+  }
   
-  // Limita a 3 mensagens para não sobrecarregar
-  return pedacos.slice(0, 3).filter(p => p.length > 0);
+  // Segunda passada: quebra mensagens ainda muito longas
+  const pedacosFinais = [];
+  for (const pedaco of pedacos) {
+    if (pedaco.length <= 80) {
+      pedacosFinais.push(pedaco);
+      continue;
+    }
+    
+    // Quebra por vírgulas ou conjunções
+    const subpartes = pedaco.split(/,\s+|(?:\s+(?:mas|e|então|aí|né|porque)\s+)/i);
+    let temp = "";
+    
+    for (const sub of subpartes) {
+      if (!sub.trim()) continue;
+      
+      if (!temp) {
+        temp = sub.trim();
+      } else if ((temp + " " + sub).length > 70) {
+        pedacosFinais.push(temp.trim());
+        temp = sub.trim();
+      } else {
+        temp += " " + sub.trim();
+      }
+    }
+    
+    if (temp.trim()) {
+      pedacosFinais.push(temp.trim());
+    }
+  }
+  
+  // Limita a 4 mensagens para não sobrecarregar
+  return pedacosFinais.slice(0, 4).filter(p => p.length > 0);
 }
 
 // ==================== ENVIO DE TEXTO HUMANIZADO ====================
@@ -417,28 +464,29 @@ async function sendTextHuman(chatId, text, contexto = 'normal') {
       if (!parte) continue;
       
       if (parte.match(/^https?:\/\//)) {
-        // É um link - envia sozinho
-        await simularDigitando(chatId, 1000 + Math.random() * 1000);
+        // É um link - envia sozinho após pausa
+        await simularDigitando(chatId, 800 + Math.random() * 1200);
         await client.sendMessage(chatId, parte);
-        if (i < partes.length - 1) await sleep(800 + Math.random() * 700);
+        if (i < partes.length - 1) await sleep(1000 + Math.random() * 800);
       } else {
-        // É texto - quebra naturalmente
+        // É texto - quebra em mensagens menores
         const pedacos = quebrarMensagemNatural(parte);
         
         for (let j = 0; j < pedacos.length; j++) {
           const pedaco = pedacos[j];
           
-          // Emoji apenas na última mensagem, e nem sempre
+          // Emoji apenas na última mensagem da última parte, e raramente
           let textoFinal = pedaco;
           if (j === pedacos.length - 1 && i === partes.length - 1) {
             textoFinal += getEmojiNatural(chatId, contexto);
           }
           
-          await simularDigitando(chatId);
+          await simularDigitando(chatId, 1500 + Math.random() * 2000);
           await client.sendMessage(chatId, textoFinal);
           
+          // Pausa entre mensagens
           if (j < pedacos.length - 1 || i < partes.length - 1) {
-            await sleep(1000 + Math.random() * 1500);
+            await sleep(1000 + Math.random() * 2000);
           }
         }
       }
@@ -446,23 +494,25 @@ async function sendTextHuman(chatId, text, contexto = 'normal') {
     return;
   }
   
-  // Mensagem sem link - quebra naturalmente
+  // Mensagem sem link - quebra em várias mensagens curtas
   const pedacos = quebrarMensagemNatural(text);
   
   for (let i = 0; i < pedacos.length; i++) {
     const pedaco = pedacos[i];
     
-    // Emoji apenas na última mensagem
+    // Emoji APENAS na última mensagem e raramente
     let textoFinal = pedaco;
-    if (i === pedacos.length - 1) {
+    if (i === pedacos.length - 1 && Math.random() < 0.15) {
       textoFinal += getEmojiNatural(chatId, contexto);
     }
     
-    await simularDigitando(chatId);
+    // Simula digitação com tempo variável
+    await simularDigitando(chatId, 1800 + Math.random() * 2500);
     await client.sendMessage(chatId, textoFinal);
     
+    // Pausa entre mensagens (se não for a última)
     if (i < pedacos.length - 1) {
-      await sleep(1200 + Math.random() * 1800);
+      await sleep(1200 + Math.random() * 2300);
     }
   }
 }
@@ -628,34 +678,52 @@ ${respostasObjecoes[objecao]?.map((r, i) => `${i + 1}. ${r}`).join('\n')}
 4. Reciprocidade: "te mandei amostra né"
 
 ⚠️ REGRAS CRÍTICAS:
-- NUNCA mensagens longas (max 2-3 frases)
-- emoji APENAS quando natural (25% das msgs)
-- SEMPRE quebra link em mensagem separada
-- usa "..." para pausas dramáticas
-- variação: às vezes formal, às vezes solta
+- NUNCA mensagens longas (max 1-2 frases por mensagem)
+- emoji RARAMENTE (apenas 10% das conversas)
+- SEMPRE quebra em múltiplas mensagens curtas
+- usa "..." para pausas naturais
+- varia o tom: casual, séria, provocante
 - ${linkJaEnviado ? '✅ link enviado - agora convence' : '📍 prepara o terreno'}
-- CONTEXTO: ${numMensagens} mensagens trocadas
+- CONTEXTO: ${numMensagens} mensagens
 - INTERESSE: ${nivelInteresse}/10
 - TENTATIVAS: ${ctx.tentativasVenda}x
+- IMPORTANTE: respostas CURTAS e DIVIDIDAS
 
-💬 EXEMPLOS NATURAIS:
+💬 EXEMPLOS DE COMO RESPONDER:
 
 Lead: "você é gostosa?"
-Você: "vem descobrir"
-Você: "tenho certeza que você vai gostar"
+❌ ERRADO: "vem descobrir né amor, tenho certeza que você vai gostar do que vai ver 😈"
+✅ CERTO:
+Msg1: "vem descobrir"
+[pausa]
+Msg2: "tenho certeza que você vai gostar"
 
 Lead: "me manda foto"
-Você: "foto?"
-Você: "lá eu tenho vídeo bem melhor"
-Você: ${LINK_OFERTA}
+❌ ERRADO: "foto? lá no meu fanvue eu tenho vídeo bem melhor, gemendo seu nome"
+✅ CERTO:
+Msg1: "foto?"
+[pausa]
+Msg2: "lá eu tenho vídeo bem melhor"
+[pausa]
+Msg3: ${LINK_OFERTA}
 
 Lead: "quanto custa"
-Você: "menos que você gasta num role"
-Você: "e você me tem todo dia"
+❌ ERRADO: "menos que você gasta num role e você me tem todo dia fazendo tudo"
+✅ CERTO:
+Msg1: "menos que você gasta num role"
+[pausa]
+Msg2: "e você me tem todo dia"
 
 Lead: "tá caro"
-Você: "caro é você ficar aí só na imaginação"
-Você: "quando pode me ver de verdade"
+❌ ERRADO: "caro é você ficar aí só na imaginação quando pode me ver de verdade"
+✅ CERTO:
+Msg1: "caro é você ficar só imaginando"
+[pausa]
+Msg2: "quando pode me ver de verdade"
+
+NUNCA use emoji em toda resposta
+NUNCA junte muitas ideias em uma mensagem
+SEMPRE separe em mensagens curtas e simples
 
 IMPORTANTE:
 - NUNCA usa <<AUDIO:arquivo.ogg>> - você só CONVERSA
@@ -680,9 +748,9 @@ IMPORTANTE:
       const completion = await openai.chat.completions.create({
         model: "gpt-4o-mini",
         messages,
-        max_tokens: 150, // reduzido para respostas curtas
-        temperature: 0.9,
-        presence_penalty: 0.6,
+        max_tokens: 100, // reduzido ainda mais para forçar respostas curtas
+        temperature: 0.85,
+        presence_penalty: 0.7,
         frequency_penalty: 0.8,
       });
 
@@ -951,10 +1019,12 @@ client.initialize().catch(console.error);
 
 log("🚀 Bot humanizado iniciado");
 log("📊 Melhorias:");
-log("   ✅ Mensagens quebradas naturalmente");
-log("   ✅ Emojis sutis e contextuais (25%)");
+log("   ✅ Mensagens quebradas em múltiplas caixas");
+log("   ✅ Máximo 70-80 caracteres por mensagem");
+log("   ✅ Emojis raríssimos (10% apenas)");
 log("   ✅ Link sempre em mensagem separada");
-log("   ✅ Timing variável e imprevisível");
-log("   ✅ Respostas curtas e diretas");
+log("   ✅ Timing variável (1.5-4s entre msgs)");
+log("   ✅ Respostas muito curtas e naturais");
+log("   ✅ Ortografia correta com espaçamento");
 log("   ✅ Comportamento 100% humano");
 log(`   ✅ ${audiosDrive.length} áudios disponíveis`);
