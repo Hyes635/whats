@@ -516,43 +516,6 @@
     // ---------- memória / followups ----------
     const firstAudioName = "fixed_oi_gatinho_lindo.ogg";
 
-    function resetFollowUps(chatId) {
-      if (!followTimers[chatId]) return;
-      for (const t of followTimers[chatId]) clearTimeout(t);
-      delete followTimers[chatId];
-    }
-    function scheduleFollowUps(chatId) {
-      resetFollowUps(chatId);
-      followTimers[chatId] = [];
-    
-      if (userAskedForLink[chatId] || ofertaEnviada[chatId]) return; // evita T3 desnecessário
-    
-      const t3 = setTimeout(async () => {
-        try {
-          if (ofertaEnviada[chatId]) return; // garante que só manda 1 vez
-    
-          log("followup 3m -> pressao media:", chatId);
-          ofertaEnviada[chatId] = true; // marca como enviado pra não repetir
-    
-          const file = checkAudioTrigger("sdd") || "fixed_ja_to_com_sdd.ogg";
-          if (file && audiosDriveMap[file] && !audioJaEnviado(chatId, file)) {
-            await sendAudioHuman(chatId, file);
-          } else {
-            await sendTextHuman(chatId, "amor, to aqui ainda, se quiser ver mais tem que garantir seu acesso ok", false);
-          }
-    
-          await sleep(3000 + Math.random() * 2000);
-          await sendTextHuman(chatId, `quer ver mais? entra no meu canal ${LINK_OFERTA} 😏`, false);
-          await sleep(3000 + Math.random() * 2000);
-          await sendTextHuman(chatId, "lá tem tudo que não posso mostrar aqui ", false);
-        } catch (e) {
-          log("erro followup:", e.message);
-        }
-      }, 3 * 60 * 1000);
-    
-      followTimers[chatId].push(t3);
-    }
-    
     
     // ---------- OpenAI interaction ----------
     async function askOpenAI(chatId, userText) {
@@ -649,7 +612,14 @@
     }
 
     const lastMessageTime = {};
-    
+
+    // marca o usuário que pediu link (pra evitar followup depois)
+    function markUserAskedLink(chatId) {
+      userAskedForLink[chatId] = true;
+      setTimeout(() => {
+        delete userAskedForLink[chatId];
+      }, 6 * 60 * 60 * 1000); // limpa depois de 6 horas
+    }
     client.on("message", async (msg) => {
       const chatId = msg.from;
       const agora = Date.now();
@@ -667,14 +637,10 @@
       // se pediu o link e ainda não mandou
       if (pediuLink && !ofertaEnviada[chatId]) {
         markUserAskedLink(chatId);
-        await sendTextHuman(chatId, `bom, você pode conferir tudo lá no meu perfil 😉`, false);
-        await sleep(2500 + Math.random() * 1500);
-        await sendTextHuman(chatId, `é só acessar ${LINK_OFERTA}`, false);
+        await sendTextHuman(chatId, `claro 😏 dá uma olhada aqui ${LINK_OFERTA}`);
         ofertaEnviada[chatId] = true;
-        scheduleFollowUps(chatId); // só agenda se quiser lembretes leves
         return;
       }
-
     
       // controle anti-spam
       const MIN_INTERVAL = 2000;
@@ -683,8 +649,8 @@
       }
       lastMessageTime[chatId] = agora;
     
+    
       await processarFila(chatId, async () => {
-        resetFollowUps(chatId);
     
         atualizarContexto(chatId, { role: "user", content: text });
         if (!memoryStore[chatId]) memoryStore[chatId] = { history: [], lastActive: Date.now() };
@@ -727,13 +693,6 @@
             await sendTextHuman(chatId, reply, false);
           }
     
-          // se já pediu o link, não envia T3
-          if (!ofertaEnviada[chatId] && !userAskedForLink[chatId] && conversationContext[chatId]?.mensagens?.length >= 6) {
-            await sendTextHuman(chatId, `quer ver mais? entra no meu canal ${LINK_OFERTA} 😏`, false);
-            ofertaEnviada[chatId] = true;
-          }
-    
-          scheduleFollowUps(chatId);
           return;
         }
     
@@ -766,13 +725,7 @@
       });
     });
     
-    // marca o usuário que pediu link (pra evitar followup depois)
-    function markUserAskedLink(chatId) {
-      userAskedForLink[chatId] = true;
-      setTimeout(() => {
-        delete userAskedForLink[chatId];
-      }, 6 * 60 * 60 * 1000); // limpa depois de 6 horas
-    }
+    
     
 
     // inicializa
