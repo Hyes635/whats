@@ -649,9 +649,9 @@ const client = new Client({
   }
 });
 
-client.on("qr", (qr) => {
-  console.log("📱 escaneie este QR (whatsapp do celular que será a IA):");
-  qrcode.generate(qr, { small: true });
+client.on('qr', (qr) => {
+  console.log("📱 Escaneie o QR code abaixo:\n");
+  qrcode.generate(qr, { small: true }); // gera o QR legível
 });
 
 client.on("ready", () => console.log("🤖 bot conectado no WhatsApp!"));
