@@ -630,16 +630,29 @@ if (addEmoji) {
       if (!ofertaEnviada[chatId]) ofertaEnviada[chatId] = false;
     
       // detectar pedido explícito de link/perfil
-      const explicitLinkRegex = /\b(perfil|link|fanvue|onde posso ver|onde vejo|qual seu perfil|me manda o link|me manda link|me passa o link|como vejo|onde fica|me manda o perfil)\b/i;
-      const pediuLink = explicitLinkRegex.test(text);
+      // detecta interesse claro em ver o perfil / link
+const explicitLinkRegex = /\b(fanvue|link|perfil|ver você|ver vc|onde te vejo|como te vejo|onde posso ver|me passa|me manda|me mostra|qual seu fanvue|quero te ver|quero ver|como acesso|como entro|como assino|como vejo|onde fica)\b/i;
+const pediuLink = explicitLinkRegex.test(text);
+
     
-      // se pediu o link e ainda não mandou
-      if (pediuLink && !ofertaEnviada[chatId]) {
-        markUserAskedLink(chatId);
-        await sendTextHuman(chatId, `claro 😏 dá uma olhada aqui ${LINK_OFERTA}`);
-        ofertaEnviada[chatId] = true;
-        return;
-      }
+if (pediuLink && !ofertaEnviada[chatId]) {
+  markUserAskedLink(chatId);
+  
+  const respostasLink = [
+    `claro 😏 dá uma olhada aqui ${LINK_OFERTA}`,
+    `te mando sim 😘 ${LINK_OFERTA}`,
+    `aqui amor 💋 ${LINK_OFERTA}`,
+    `me encontra lá 😈 ${LINK_OFERTA}`,
+    `olha só, é aqui que posto tudo ${LINK_OFERTA}`
+  ];
+  
+  const respostaEscolhida = respostasLink[Math.floor(Math.random() * respostasLink.length)];
+  await sendTextHuman(chatId, respostaEscolhida);
+  
+  ofertaEnviada[chatId] = true;
+  return;
+}
+
     
       // controle anti-spam
       const MIN_INTERVAL = 2000;  
