@@ -1,6 +1,6 @@
 /*******************************************************
  * index.js - bot whatsapp-web.js + OpenAI (Whisper)
- * VERSÃO OTIMIZADA - Foco em conversão e vendas
+ * VERSÃO HUMANIZADA - Conversação natural e vendas sutis
  *******************************************************/
 
 import { fileURLToPath } from "url";
@@ -33,14 +33,14 @@ function sleep(ms) {
 
 // ==================== CONTEXTO E MEMÓRIA ====================
 const conversationContext = {};
-const MAX_CONTEXT_MESSAGES = 12; // aumentado para manter mais contexto
+const MAX_CONTEXT_MESSAGES = 12;
 
 function atualizarContexto(chatId, novaMensagem) {
   if (!conversationContext[chatId]) {
     conversationContext[chatId] = { 
       tokenCount: 0, 
       mensagens: [],
-      nivelInteresse: 0, // 0-10 scale
+      nivelInteresse: 0,
       objecoesFeitas: [],
       tentativasVenda: 0
     };
@@ -87,21 +87,19 @@ const memoryStore = {};
 const followTimers = {};
 const ofertaEnviada = {};
 const userAskedForLink = {};
-const objecoesUsuario = {}; // rastreia objeções
+const objecoesUsuario = {};
 
 // ==================== ANÁLISE DE INTERESSE ====================
 function analisarNivelInteresse(text, chatId) {
   if (!text) return;
   const lower = text.toLowerCase();
   
-  // Sinais de alto interesse
   const altaIntencao = [
     'quero', 'gostei', 'adorei', 'delicia', 'tesão', 'gostosa', 
     'safada', 'quanto', 'preço', 'valor', 'comprar', 'assinar',
     'ver mais', 'me mostra', 'continua', 'mais', 'link', 'perfil'
   ];
   
-  // Sinais de resistência
   const baixaIntencao = [
     'caro', 'não tenho', 'depois', 'mais tarde', 'pensar',
     'não sei', 'talvez', 'grátis', 'gratuito', 'não posso'
@@ -146,7 +144,6 @@ function detectarObjecao(text) {
   return null;
 }
 
-// Limpa memórias inativas
 setInterval(() => {
   const agora = Date.now();
   for (const id in memoryStore) {
@@ -276,109 +273,196 @@ function detectarPedidoLink(text) {
   return null;
 }
 
-// ==================== CONTROLE DE EMOJIS ====================
+// ==================== CONTROLE DE EMOJIS HUMANIZADO ====================
+const emojisPorContexto = {
+  flerte: ["😏", "😈"],
+  excitacao: ["🔥", "💦"],
+  carinho: ["😘", "🥰", "❤️"],
+  provocacao: ["😏", "🤭"],
+  risada: ["😂", "kkkkk", "kkkk"],
+};
+
 const emojiHistory = {};
 
-function getEmojiControlado(chatId) {
-  const emojiList = ["😈", "😏", "🔥", "💦", "😻", "🤤", "👅", "💋"];
+function getEmojiNatural(chatId, contexto = 'flerte') {
+  // Apenas 25% de chance de usar emoji
+  if (Math.random() > 0.25) return "";
   
-  if (!emojiHistory[chatId]) emojiHistory[chatId] = { lastEmoji: null, used: new Set() };
-  const { lastEmoji, used } = emojiHistory[chatId];
-
-  if (Math.random() > 0.15) return ""; // 15% de chance
-
-  if (used.size >= emojiList.length - 2) used.clear();
-
-  const disponíveis = emojiList.filter(e => e !== lastEmoji && !used.has(e));
-  const escolhido = disponíveis[Math.floor(Math.random() * disponíveis.length)];
-
-  used.add(escolhido);
+  if (!emojiHistory[chatId]) {
+    emojiHistory[chatId] = { lastEmoji: null, count: 0 };
+  }
+  
+  // Se já usou emoji recentemente, reduz chances
+  if (emojiHistory[chatId].count > 0) {
+    if (Math.random() > 0.3) {
+      emojiHistory[chatId].count = 0;
+      return "";
+    }
+  }
+  
+  const lista = emojisPorContexto[contexto] || emojisPorContexto.flerte;
+  const escolhido = lista[Math.floor(Math.random() * lista.length)];
+  
   emojiHistory[chatId].lastEmoji = escolhido;
-
+  emojiHistory[chatId].count++;
+  
   return " " + escolhido;
 }
 
 // ==================== SIMULAÇÃO DE ESTADOS ====================
-async function simularDigitando(chatId, duracao = 6000) {
+async function simularDigitando(chatId, duracao = null) {
   const chat = await client.getChatById(chatId).catch(() => null);
   if (!chat) return;
+  
+  // Duração variável e imprevisível
+  const duracaoReal = duracao || (2000 + Math.random() * 4000);
+  
   try {  
     await chat.sendStateTyping();
-    await sleep(duracao);
+    await sleep(duracaoReal);
     await chat.clearState();
   } catch (e) {
     log("erro simularDigitando:", e.message);
   }
 }
 
-async function simularGravando(chatId, duracao = 4000) {
+async function simularGravando(chatId, duracao = null) {
+  const duracaoReal = duracao || (3000 + Math.random() * 3000);
+  
   try {
     const chat = await client.getChatById(chatId);
     await chat.sendStateRecording();
-    await sleep(duracao);
+    await sleep(duracaoReal);
     await chat.clearState();
   } catch (e) {
     log("erro simularGravando:", e.message);
   }
 }
 
-// ==================== ENVIO DE TEXTO ====================
-async function sendTextHuman(chatId, text, isFirst = false) {
+// ==================== QUEBRA DE MENSAGENS NATURAL ====================
+function quebrarMensagemNatural(texto) {
+  if (!texto) return [];
+  
+  // Remove texto indesejado
+  const proibidas = [
+    "já te mandei isso",
+    "já te falei",
+    "te expliquei antes",
+    "me conta mais disso",
+    "\\brs\\b"
+  ];
+
+  let msg = texto;
+  for (const frase of proibidas) {
+    const regex = new RegExp(frase, "gi");
+    msg = msg.replace(regex, "");
+  }
+
+  msg = msg
+    .replace(/\s{2,}/g, " ")
+    .replace(/^\s+|\s+$/g, "")
+    .replace(/\s+([.,!?])/g, "$1")
+    .trim();
+
+  if (!msg) return [];
+
+  // Quebra natural por pontuação e tamanho
+  const pedacos = [];
+  let atual = "";
+  
+  const frases = msg.split(/([.!?]+\s+|\n)/);
+  
+  for (let i = 0; i < frases.length; i++) {
+    const parte = frases[i];
+    
+    if (!parte || parte.match(/^[.!?\s]+$/)) continue;
+    
+    // Se a frase atual + nova parte fica muito longa, quebra
+    if ((atual + parte).length > 120 && atual.length > 0) {
+      pedacos.push(atual.trim());
+      atual = parte;
+    } else {
+      atual += parte;
+    }
+    
+    // Quebra em frases completas quando faz sentido
+    if (parte.match(/[.!?]$/) && atual.length > 40) {
+      pedacos.push(atual.trim());
+      atual = "";
+    }
+  }
+  
+  if (atual.trim()) pedacos.push(atual.trim());
+  
+  // Limita a 3 mensagens para não sobrecarregar
+  return pedacos.slice(0, 3).filter(p => p.length > 0);
+}
+
+// ==================== ENVIO DE TEXTO HUMANIZADO ====================
+async function sendTextHuman(chatId, text, contexto = 'normal') {
   if (!sentAudioByContact[chatId]) {
     sentAudioByContact[chatId] = { audios: new Set(), usedEmojis: new Set() };
   }
 
   if (!text) return;
-  let msg = String(text).trim();
-  if (!msg) return;
-
-  const temLink = msg.includes('http');
   
-  if (!temLink) {
-    const proibidas = [
-      "já te mandei isso",
-      "já te falei",
-      "te expliquei antes",
-      "me conta mais disso",
-      "\\brs\\b"
-    ];
-
-    for (const frase of proibidas) {
-      const regex = new RegExp(frase, "gi");
-      msg = msg.replace(regex, "");
-    }
-
-    msg = msg
-      .replace(/\s{2,}/g, " ")
-      .replace(/^\s+|\s+$/g, "")
-      .replace(/\s+([.,!?])/g, "$1")
-      .trim();
-  }
-
-  if (!msg) return;
-
-  await simularDigitando(chatId, 2000 + Math.random() * 3000);
-
+  const temLink = text.includes('http');
+  
+  // Se tem link, separa ele em mensagem própria
   if (temLink) {
-    await client.sendMessage(chatId, msg);
+    const partes = text.split(/(https?:\/\/[^\s]+)/);
+    
+    for (let i = 0; i < partes.length; i++) {
+      const parte = partes[i].trim();
+      if (!parte) continue;
+      
+      if (parte.match(/^https?:\/\//)) {
+        // É um link - envia sozinho
+        await simularDigitando(chatId, 1000 + Math.random() * 1000);
+        await client.sendMessage(chatId, parte);
+        if (i < partes.length - 1) await sleep(800 + Math.random() * 700);
+      } else {
+        // É texto - quebra naturalmente
+        const pedacos = quebrarMensagemNatural(parte);
+        
+        for (let j = 0; j < pedacos.length; j++) {
+          const pedaco = pedacos[j];
+          
+          // Emoji apenas na última mensagem, e nem sempre
+          let textoFinal = pedaco;
+          if (j === pedacos.length - 1 && i === partes.length - 1) {
+            textoFinal += getEmojiNatural(chatId, contexto);
+          }
+          
+          await simularDigitando(chatId);
+          await client.sendMessage(chatId, textoFinal);
+          
+          if (j < pedacos.length - 1 || i < partes.length - 1) {
+            await sleep(1000 + Math.random() * 1500);
+          }
+        }
+      }
+    }
     return;
   }
-
-  const partes = msg.split(/[.!?]/).map(p => p.trim()).filter(p => p.length > 0);
-  const qtd = Math.min(partes.length, Math.random() < 0.6 ? 1 : 2);
-  const escolhidas = partes.slice(0, qtd);
-
-  let emoji = "";
-  if (!isFirst && Math.random() < 0.15) {
-    emoji = getEmojiControlado(chatId);
-  }
-
-  for (let i = 0; i < escolhidas.length; i++) {
-    const textoFinal = escolhidas[i] + (i === escolhidas.length - 1 ? emoji : "");
+  
+  // Mensagem sem link - quebra naturalmente
+  const pedacos = quebrarMensagemNatural(text);
+  
+  for (let i = 0; i < pedacos.length; i++) {
+    const pedaco = pedacos[i];
+    
+    // Emoji apenas na última mensagem
+    let textoFinal = pedaco;
+    if (i === pedacos.length - 1) {
+      textoFinal += getEmojiNatural(chatId, contexto);
+    }
+    
+    await simularDigitando(chatId);
     await client.sendMessage(chatId, textoFinal);
-    if (i < escolhidas.length - 1) {
-      await sleep(1200 + Math.random() * 1000);
-      await simularDigitando(chatId, 1500 + Math.random() * 1500);
+    
+    if (i < pedacos.length - 1) {
+      await sleep(1200 + Math.random() * 1800);
     }
   }
 }
@@ -396,24 +480,24 @@ function getMimeByName(name) {
 async function sendAudioHuman(chatId, audioName) {
   try {
     if (!audioName || typeof audioName !== "string") {
-      await sendTextHuman(chatId, "ops, meu áudio bugou 😅");
+      await sendTextHuman(chatId, "ops, meu áudio bugou", 'normal');
       return;
     }
 
     if (audioJaEnviado(chatId, audioName)) {
       const reply = await askOpenAI(chatId, "continua a conversa de forma safada e provocante") || "";
-      await sendTextHuman(chatId, reply, false);        
+      await sendTextHuman(chatId, reply, 'flerte');        
       return;
     }
 
     const audioUrl = audiosDriveMap[audioName];
     if (!audioUrl) {
-      await sendTextHuman(chatId, "tô com probleminha aqui amor, mas me conta, tá com tesão? 😏");
+      await sendTextHuman(chatId, "tô com probleminha aqui amor", 'normal');
       return;
     }
 
-    await simularDigitando(chatId, 1500 + Math.floor(Math.random() * 1500));
-    await simularGravando(chatId, 2500 + Math.floor(Math.random() * 1500));
+    await simularDigitando(chatId);
+    await simularGravando(chatId);
 
     const resp = await axios.get(audioUrl, { responseType: "arraybuffer", maxRedirects: 5, timeout: 20000 });
     const buffer = Buffer.from(resp.data);
@@ -428,12 +512,12 @@ async function sendAudioHuman(chatId, audioName) {
   } catch (err) {
     console.error("Erro sendAudioHuman:", err?.message || err);
     try {
-      await sendTextHuman(chatId, "calma amor, já volto 😘");
+      await sendTextHuman(chatId, "calma amor, já volto", 'normal');
     } catch (e) {}
   }
 }
 
-// ==================== INTEGRAÇÃO OPENAI (OTIMIZADA) ====================
+// ==================== INTEGRAÇÃO OPENAI (HUMANIZADA) ====================
 async function askOpenAI(chatId, userText) {
   const timeoutMs = 25000;
   const controller = new AbortController();
@@ -455,127 +539,133 @@ async function askOpenAI(chatId, userText) {
     ctx.objecoesFeitas.push(objecao);
   }
 
-  // Respostas para objeções específicas
   const respostasObjecoes = {
     preco: [
-      "entendo amor, mas pensa comigo: é menos que um lanche e você tem acesso ilimitado a todo meu conteúdo exclusivo 😏",
-      "eu sei que parece caro, mas quantas vezes você vai usar? todos os dias né... compensa demais",
-      "tá barato comparado com outras, e eu respondo todos os meus assinantes pessoalmente 💋"
+      "entendo amor, mas pensa comigo: é menos que um lanche e você tem acesso ilimitado",
+      "eu sei que parece caro, mas quantas vezes você vai usar? compensa demais",
+      "tá barato comparado com outras, e eu respondo todos os meus assinantes pessoalmente"
     ],
     tempo: [
-      "deixa eu te falar uma coisa: os melhores conteúdos eu posto hoje, amanhã já não tem mais essa promoção",
-      "entendo, mas quanto tempo você já passou aqui falando comigo? imagina o que te espera lá dentro 😈",
-      "tudo bem amor, mas me salva aí pelo menos, quando você quiser me ver de verdade você já tem o link"
+      "os melhores conteúdos eu posto hoje, amanhã já não tem mais essa promoção",
+      "entendo, mas quanto tempo você já passou aqui falando comigo? imagina o que te espera",
+      "tudo bem amor, mas me salva aí, quando você quiser me ver você já tem o contato"
     ],
     desconfianca: [
       "sou real sim amor, quer que eu te mande um áudio? ou uma foto com seu nome?",
       "eu verifico meu perfil, pode conferir, várias pessoas assinam todo dia",
-      "se fosse fake eu nem ia perder tempo conversando tanto contigo né amor"
+      "se fosse fake eu nem ia perder tempo conversando tanto contigo"
     ],
     comparacao: [
-      "grátis você acha em qualquer lugar, mas comigo é diferente, eu interajo, respondo, faço conteúdo personalizado",
-      "pode procurar, mas você não vai achar ninguém que conversa com você desse jeito 😏",
-      "conteúdo grátis todo mundo tem, mas conexão de verdade só lá dentro"
+      "grátis você acha em qualquer lugar, mas comigo é diferente, eu interajo, respondo",
+      "pode procurar, mas você não vai achar ninguém que conversa com você desse jeito",
+      "conteúdo grátis todo mundo tem, mas conexão de verdade só aqui"
     ],
     indecisao: [
       "pensar o quê amor? você quer me ver ou não? seja sincero comigo",
-      "quanto mais você pensa, mais você fica curioso... para de sofrer e vem logo 😈",
-      "tá bom, mas me promete uma coisa: salva meu contato e quando bater a curiosidade você volta"
+      "quanto mais você pensa, mais você fica curioso... para de sofrer",
+      "tá bom, mas me salva aí e quando bater a curiosidade você volta"
     ]
   };
 
   const systemPrompt = `
 você é Bianca Lika, 21 anos, de Curitiba. mulher safada, confiante, sedutora.
-OBJETIVO: fazer o lead assinar o fanvue ${LINK_OFERTA} usando TODAS as técnicas de persuasão.
+OBJETIVO: fazer o lead assinar o fanvue ${LINK_OFERTA}
 
-🔥 PERSONALIDADE:
-- safada, ousada, provocante
-- responde cantadas e sacanagem na mesma altura ou mais
-- usa duplo sentido, insinuações sexuais
-- não tem vergonha de falar putaria
-- cria desejo, tensão sexual, urgência
-- minúsculas, frases curtas, natural
+🎭 PERSONALIDADE NATURAL:
+- conversa como uma pessoa REAL, não como robô
+- respostas CURTAS e DIRETAS (máximo 2-3 frases)
+- minúsculas sempre, pontuação simples
+- emoji RARO (apenas quando faz sentido mesmo)
+- quebra pensamentos em mensagens separadas
+- fala de forma provocante mas natural
+- usa "kkkkk" ou "kkkk" quando algo é engraçado
+- variação no tom: às vezes mais séria, às vezes mais solta
 
-💰 FASES DE VENDA (IMPORTANTE):
+🔥 ESTILO DE COMUNICAÇÃO:
+- NUNCA responde tudo de uma vez
+- quebra ideias em mensagens curtas
+- deixa o lead responder entre uma coisa e outra
+- usa reticências... para criar suspense
+- evita emojis múltiplos ou exagerados
+- quando usa emoji, é apenas UM no final
+
+💰 ESTRATÉGIA DE VENDA:
 
 **FASE 1 - ATRAÇÃO (msgs 1-3):**
-- flerte pesado, crie química
-- demonstre interesse genuíno
-- faça perguntas íntimas
-- use linguagem sexual sutil
-- exemplos: "você é do tipo que gosta de aventura?", "aposto que você é gostoso"
+- flerte leve, cria conexão
+- faz perguntas simples
+- demonstra interesse genuíno
+- exemplo: "e aí, do que você gosta?" "você é de onde?"
 
 **FASE 2 - DESEJO (msgs 4-6):**
-- aumente a tensão sexual
-- insinue o que tem no fanvue
-- crie curiosidade extrema
-- exemplos: "tenho uns vídeos que você ia pirar", "me filmei fazendo umas coisas bem safadas"
+- aumenta tensão gradualmente
+- solta indiretas sobre conteúdo
+- cria curiosidade
+- exemplo: "tenho uns vídeos bem safadinhos" "você ia gostar"
 
 **FASE 3 - OFERTA (msg 7+):**
-- apresente o link naturalmente
-- destaque benefícios: "lá eu mostro TUDO", "posto todo dia", "respondo DM"
-- crie urgência: "promoção só hoje", "preço vai subir"
-- SEMPRE inclua o link: ${LINK_OFERTA}
+- apresenta link de forma NATURAL
+- SEMPRE em mensagem SEPARADA
+- exemplo: "quer ver tudo que eu tenho?" [PAUSA] ${LINK_OFERTA}
+- destaca benefícios de forma casual
 
 **FASE 4 - OBJEÇÕES:**
 ${objecao ? `
-🚨 LEAD FEZ OBJEÇÃO: "${objecao}"
-Use uma destas respostas:
+🚨 OBJEÇÃO DETECTADA: "${objecao}"
+Responda naturalmente:
 ${respostasObjecoes[objecao]?.map((r, i) => `${i + 1}. ${r}`).join('\n')}
+` : 'sem objeções, continue natural'}
 
-Depois da objeção, REFORCE A OFERTA com o link!
-` : 'sem objeções ainda, continue seduzindo'}
+**FASE 5 - REFORÇO:**
+- nunca desiste mas não fica chata
+- se recusar: aceita mas deixa porta aberta
+- mantém conversa leve
 
-**FASE 5 - FECHAMENTO (NUNCA DESISTA):**
-- se recusar: "tudo bem amor, mas me salva aí, quando você quiser me ver pelada você já tem"
-- se silenciar: "ficou com vergonha? 😏 vem que eu te mostro tudo"
-- se enrolar: "para de enrolar e vem logo, tô te esperando lá"
-- SEMPRE reforce valor: "é menos que uma pizza e você me vê quando quiser"
-
-🎯 TÉCNICAS DE MANIPULAÇÃO (USE SEMPRE):
-1. Escassez: "só até hoje", "últimas vagas"
-2. Prova social: "vários caras assinaram hoje"
-3. Reciprocidade: "te mandei amostra grátis, agora é sua vez"
-4. Autoridade: "sou verificada", "tenho nota 5 estrelas"
-5. Compromisso: "você disse que queria me ver, então..."
-6. FOMO: "seus amigos já devem estar lá"
+🎯 TÉCNICAS SUTIS:
+1. Escassez: "só hoje" mas de forma natural
+2. Prova social: "vários caras assinaram" casual
+3. FOMO: sem exagero, só sutilmente
+4. Reciprocidade: "te mandei amostra né"
 
 ⚠️ REGRAS CRÍTICAS:
-- NUNCA desista da venda, sempre reforce
-- responda putaria com MAIS putaria
-- use linguagem explícita quando o lead usar
-- faça o lead imaginar cenários sexuais
-- crie conexão emocional + sexual
-- ${linkJaEnviado ? '✅ link JÁ ENVIADO - agora CONVENÇA ele a assinar' : '📍 ainda NÃO enviou link - envie na hora certa'}
-- emoji sexual raramente (😈 🔥 💦 👅)
-- minúsculas sempre
-- seja INSISTENTE mas carinhosa
+- NUNCA mensagens longas (max 2-3 frases)
+- emoji APENAS quando natural (25% das msgs)
+- SEMPRE quebra link em mensagem separada
+- usa "..." para pausas dramáticas
+- variação: às vezes formal, às vezes solta
+- ${linkJaEnviado ? '✅ link enviado - agora convence' : '📍 prepara o terreno'}
+- CONTEXTO: ${numMensagens} mensagens trocadas
+- INTERESSE: ${nivelInteresse}/10
+- TENTATIVAS: ${ctx.tentativasVenda}x
 
-📊 CONTEXTO ATUAL:
-- número de mensagens: ${numMensagens}
-- nível de interesse (0-10): ${nivelInteresse}
-- link enviado: ${linkJaEnviado ? 'SIM - foco em converter' : 'NÃO - prepare a oferta'}
-- objeções feitas: ${ctx.objecoesFeitas.join(', ') || 'nenhuma'}
-- tentativas de venda: ${ctx.tentativasVenda}
+💬 EXEMPLOS NATURAIS:
 
-💬 EXEMPLOS DE RESPOSTAS SAFADAS:
 Lead: "você é gostosa?"
-Você: "vem descobrir né amor... tenho certeza que você vai gostar do que vai ver 😈"
+Você: "vem descobrir"
+Você: "tenho certeza que você vai gostar"
 
 Lead: "me manda foto"
-Você: "foto? lá no meu fanvue eu tenho vídeo me tocando inteira, gemendo seu nome... ${LINK_OFERTA}"
+Você: "foto?"
+Você: "lá eu tenho vídeo bem melhor"
+Você: ${LINK_OFERTA}
 
 Lead: "quanto custa"
-Você: "menos que você gasta num fim de semana e você me tem todo dia, fazendo tudo que você imaginar 🔥"
+Você: "menos que você gasta num role"
+Você: "e você me tem todo dia"
 
 Lead: "tá caro"
-Você: "caro é você ficar aí se masturbando com qualquer coisa na internet quando pode me ver de verdade, interagir comigo, pedir o que quiser... pensa nisso"
+Você: "caro é você ficar aí só na imaginação"
+Você: "quando pode me ver de verdade"
 
-Lead: "não tenho dinheiro"
-Você: "amor, é o preço de 2 cervejas... você vai me dizer que não vale a pena? eu respondo todos os meus assinantes, faço conteúdo personalizado"
+IMPORTANTE:
+- NUNCA usa <<AUDIO:arquivo.ogg>> - você só CONVERSA
+- respostas sempre CURTAS
+- link SEMPRE sozinho em uma mensagem
+- emoji máximo 1 por resposta
+- seja HUMANA, não robô
 
-áudios disponíveis: ${allAudios.join(", ")}
-use <<AUDIO:nome.ogg>> quando fizer sentido
+áudios disponíveis para referência: ${allAudios.join(", ")}
+(mas você não sugere áudio, só conversa)
 `;
 
   const messages = [
@@ -590,20 +680,22 @@ use <<AUDIO:nome.ogg>> quando fizer sentido
       const completion = await openai.chat.completions.create({
         model: "gpt-4o-mini",
         messages,
-        max_tokens: 350,
-        temperature: 0.95,
+        max_tokens: 150, // reduzido para respostas curtas
+        temperature: 0.9,
         presence_penalty: 0.6,
-        frequency_penalty: 0.7,
+        frequency_penalty: 0.8,
       });
 
-      const resposta = completion.choices?.[0]?.message?.content || "";
+      let resposta = completion.choices?.[0]?.message?.content || "";
       const tokensUsados = completion.usage?.total_tokens || 0;
+      
+      // Remove emojis excessivos
+      resposta = resposta.replace(/([\u{1F300}-\u{1F9FF}])\1+/gu, '$1');
       
       contarTokens(chatId, tokensUsados);
       atualizarContexto(chatId, { role: "user", content: userText });
       atualizarContexto(chatId, { role: "assistant", content: resposta });
       
-      // Atualiza tentativas de venda se enviou link
       if (resposta.includes(LINK_OFERTA)) {
         conversationContext[chatId].tentativasVenda++;
       }
@@ -651,35 +743,31 @@ const client = new Client({
 
 client.on('qr', (qr) => {
   console.log("📱 Escaneie o QR code abaixo:\n");
-  qrcode.generate(qr, { small: true }); // gera o QR legível
+  qrcode.generate(qr, { small: true });
 });
 
 client.on("ready", () => console.log("🤖 bot conectado no WhatsApp!"));
 
 // ==================== SISTEMA DE FOLLOW-UP AUTOMÁTICO ====================
 function agendarFollowUp(chatId, delay = 2 * 60 * 60 * 1000) {
-  // Cancela follow-up anterior se existir
   if (followTimers[chatId]) {
     clearTimeout(followTimers[chatId]);
   }
 
-  // Se já converteu, não agenda follow-up
   if (ofertaEnviada[chatId]) {
     followTimers[chatId] = setTimeout(async () => {
       try {
         const mensagensFollow = [
-          "e aí amor, conseguiu dar uma olhada no meu conteúdo? 😏",
-          "opa, sumiu? tava com saudade 🥺",
-          "voltei aqui pra te lembrar que eu tô te esperando lá 😈",
-          "não vai me deixar esperando né amor",
-          "tô aqui pensando em você... bora matar essa curiosidade? 🔥"
+          "e aí, conseguiu ver?",
+          "opa, sumiu?",
+          "tava pensando em você aqui",
+          "bora matar essa curiosidade?"
         ];
         
         const msg = mensagensFollow[Math.floor(Math.random() * mensagensFollow.length)];
-        await sendTextHuman(chatId, msg);
+        await sendTextHuman(chatId, msg, 'normal');
         
-        // Agenda próximo follow-up
-        agendarFollowUp(chatId, 6 * 60 * 60 * 1000); // 6 horas depois
+        agendarFollowUp(chatId, 6 * 60 * 60 * 1000);
       } catch (e) {
         log("Erro no follow-up:", e.message);
       }
@@ -687,7 +775,7 @@ function agendarFollowUp(chatId, delay = 2 * 60 * 60 * 1000) {
   }
 }
 
-// ==================== HANDLER DE MENSAGENS (OTIMIZADO) ====================
+// ==================== HANDLER DE MENSAGENS (HUMANIZADO) ====================
 client.on("message", async (msg) => {
   const chatId = msg.from;
   const agora = Date.now();
@@ -695,7 +783,6 @@ client.on("message", async (msg) => {
 
   if (msg.fromMe) return;
 
-  // Inicializa controles
   if (!ofertaEnviada[chatId]) ofertaEnviada[chatId] = false;
   if (!userAskedForLink[chatId]) userAskedForLink[chatId] = false;
   if (!objecoesUsuario[chatId]) objecoesUsuario[chatId] = [];
@@ -709,7 +796,7 @@ client.on("message", async (msg) => {
 
   await processarFila(chatId, async () => {
     
-    // 1️⃣ TRANSCRIÇÃO DE ÁUDIO
+    // TRANSCRIÇÃO DE ÁUDIO
     try {
       if (msg.hasMedia) {
         const media = await msg.downloadMedia();
@@ -740,123 +827,120 @@ client.on("message", async (msg) => {
 
     log("📩 lead:", text);
     
-    // Analisa interesse
     analisarNivelInteresse(text, chatId);
     
-    // Detecta objeção
     const objecao = detectarObjecao(text);
     if (objecao && !objecoesUsuario[chatId].includes(objecao)) {
       objecoesUsuario[chatId].push(objecao);
       log(`🚨 Objeção detectada: ${objecao}`);
     }
 
-    await sleep(1800 + Math.random() * 1200);
+    // Delay mais natural e variável
+    await sleep(1500 + Math.random() * 2500);
 
-    // 2️⃣ DETECTA PEDIDO EXPLÍCITO DE LINK
+    // DETECTA PEDIDO DE LINK
     const tipoPedido = detectarPedidoLink(text);
     
     if (tipoPedido) {
-      const respostasLink = [
-        `aqui amor 💋 ${LINK_OFERTA} lá eu mostro tudo que você tá imaginando`,
-        `olha só ${LINK_OFERTA} entra aí que você não vai se arrepender 😈`,
-        `é aqui que a mágica acontece ${LINK_OFERTA}`,
-        `vem me conhecer de verdade ${LINK_OFERTA} prometo que vale cada centavo 🔥`,
-        `${LINK_OFERTA} tô te esperando lá amor, já tô com saudade`
+      const introducoes = [
+        "olha só",
+        "aqui amor",
+        "é aqui",
+        "vem"
       ];
       
-      const escolhida = respostasLink[Math.floor(Math.random() * respostasLink.length)];
-      await sendTextHuman(chatId, escolhida);
+      const introducao = introducoes[Math.floor(Math.random() * introducoes.length)];
+      
+      // Envia introdução
+      await sendTextHuman(chatId, introducao, 'normal');
+      
+      // Pausa antes do link
+      await sleep(800 + Math.random() * 1200);
+      
+      // Envia link sozinho
+      await client.sendMessage(chatId, LINK_OFERTA);
+      
+      // Depois explica o valor
+      await sleep(1500 + Math.random() * 1500);
+      
+      const explicacoes = [
+        "lá eu mostro tudo",
+        "você vai gostar do que vai ver",
+        "posto todo dia conteúdo novo",
+        "respondo todo mundo lá"
+      ];
+      
+      const explicacao = explicacoes[Math.floor(Math.random() * explicacoes.length)];
+      await sendTextHuman(chatId, explicacao, 'flerte');
       
       if (!ofertaEnviada[chatId]) {
         ofertaEnviada[chatId] = true;
         userAskedForLink[chatId] = true;
-        
-        // Agenda follow-up após 2 horas
         agendarFollowUp(chatId);
       }
       
       atualizarContexto(chatId, { role: "user", content: text });
-      atualizarContexto(chatId, { role: "assistant", content: escolhida });
+      atualizarContexto(chatId, { role: "assistant", content: introducao + " " + LINK_OFERTA + " " + explicacao });
       
       log(`✅ Link enviado: ${chatId}`);
       return;
     }
 
-    // 3️⃣ CONTINUA VENDENDO MESMO APÓS ENVIAR LINK
-    // Não existe mais "já enviou link então só conversa"
-    // SEMPRE tenta converter
-
-    // 4️⃣ GATILHOS DE ÁUDIO
+    // GATILHOS DE ÁUDIO
     const trig = checkAudioTrigger(text);
     if (trig && audiosDriveMap[trig]) {
       if (!audioJaEnviado(chatId, trig)) {
         await sendAudioHuman(chatId, trig);
         
-        // Após áudio, reforça venda se ainda não converteu
-        if (!ofertaEnviada[chatId]) {
-          await sleep(3000);
-          const push = await askOpenAI(chatId, "reforce sutilmente a oferta do fanvue") || "";
-          if (push) await sendTextHuman(chatId, push, false);
+        if (!ofertaEnviada[chatId] && Math.random() > 0.5) {
+          await sleep(2000 + Math.random() * 2000);
+          const push = await askOpenAI(chatId, "sutilmente menciona que tem muito mais conteúdo") || "";
+          if (push) {
+            const contexto = push.includes('gostosa') || push.includes('safad') ? 'flerte' : 'normal';
+            await sendTextHuman(chatId, push, contexto);
+          }
         }
         
         return;
       }
     }
 
-    // 5️⃣ CONVERSA COM IA (SEMPRE FOCADA EM VENDER)
+    // CONVERSA COM IA
     const reply = await askOpenAI(chatId, text) || "";
     
-    // Verifica se a IA sugeriu enviar áudio
-    const audioMatch = reply.match(/<<AUDIO:\s*([^>]+)>>/i);
-    if (audioMatch) {
-      const fname = audioMatch[1].trim();
-      if (audiosDriveMap[fname] && !audioJaEnviado(chatId, fname)) {
-        await sendAudioHuman(chatId, fname);
-        
-        // Após áudio, continua vendendo
-        if (!ofertaEnviada[chatId]) {
-          await sleep(3000);
-          const push = await askOpenAI(chatId, "agora apresente a oferta com o link") || "";
-          if (push) await sendTextHuman(chatId, push, false);
-        }
-      } else {
-        const fallback = await askOpenAI(chatId, "sem áudio, continue vendendo") || "";
-        await sendTextHuman(chatId, fallback, false);
-      }
+    if (!reply) {
+      await sendTextHuman(chatId, "calma aí amor", 'normal');
       return;
     }
-
-    // Remove o link se a IA tentar enviar quando já enviou (mas mantém resto da msg)
-    let replyFinal = reply;
-    if (ofertaEnviada[chatId] && reply.includes(LINK_OFERTA)) {
-      // IA está tentando enviar link de novo, permite mas registra
-      log("ℹ️ IA reforçando link...");
-    }
-
-    await sendTextHuman(chatId, replyFinal, false);
     
-    // Verifica se enviou link nesta resposta
+    // Detecta contexto emocional para emoji apropriado
+    let contexto = 'normal';
+    if (reply.match(/gostosa|safad|tesão|delícia|goza|prazer/i)) {
+      contexto = 'flerte';
+    } else if (reply.match(/kkk|haha|rsrs/i)) {
+      contexto = 'risada';
+    } else if (reply.match(/amor|bebê|fofo|lindo/i)) {
+      contexto = 'carinho';
+    }
+    
+    await sendTextHuman(chatId, reply, contexto);
+    
     if (reply.includes(LINK_OFERTA) && !ofertaEnviada[chatId]) {
       ofertaEnviada[chatId] = true;
       log(`✅ Link enviado pela IA: ${chatId}`);
-      
-      // Agenda follow-up
       agendarFollowUp(chatId);
     }
     
-    // 6️⃣ REENGAJAMENTO AUTOMÁTICO
-    // Se o lead não responder após link, IA vai tentar de novo
+    // REENGAJAMENTO (menos agressivo)
     const ctx = conversationContext[chatId];
-    if (ofertaEnviada[chatId] && ctx && ctx.tentativasVenda < 5) {
-      // Não foi muito insistente ainda, continua tentando
+    if (ofertaEnviada[chatId] && ctx && ctx.tentativasVenda < 3) {
       const nivelInteresse = ctx.nivelInteresse || 5;
       
-      if (nivelInteresse >= 7) {
-        // Alto interesse mas não converteu, insiste mais
+      if (nivelInteresse >= 7 && Math.random() > 0.7) {
         setTimeout(async () => {
-          const push = await askOpenAI(chatId, "ele demonstrou interesse mas não assinou, seja mais persuasiva e insistente") || "";
-          if (push) await sendTextHuman(chatId, push, false);
-        }, 15000); // 15 segundos depois
+          const push = await askOpenAI(chatId, "ele tá interessado mas não decidiu, dá um empurrãozinho sutil") || "";
+          if (push) await sendTextHuman(chatId, push, 'flerte');
+        }, 20000 + Math.random() * 15000);
       }
     }
   });
@@ -865,13 +949,12 @@ client.on("message", async (msg) => {
 // ==================== INICIALIZAÇÃO ====================
 client.initialize().catch(console.error);
 
-// Log de inicialização
-log("🚀 Bot iniciado com foco em CONVERSÃO");
-log("📊 Recursos ativos:");
-log("   ✅ Detecção de objeções");
-log("   ✅ Análise de interesse");
-log("   ✅ Respostas safadas otimizadas");
-log("   ✅ Sistema de follow-up automático");
-log("   ✅ Nunca desiste até converter");
-log("   ✅ Transcrição de áudios");
+log("🚀 Bot humanizado iniciado");
+log("📊 Melhorias:");
+log("   ✅ Mensagens quebradas naturalmente");
+log("   ✅ Emojis sutis e contextuais (25%)");
+log("   ✅ Link sempre em mensagem separada");
+log("   ✅ Timing variável e imprevisível");
+log("   ✅ Respostas curtas e diretas");
+log("   ✅ Comportamento 100% humano");
 log(`   ✅ ${audiosDrive.length} áudios disponíveis`);
